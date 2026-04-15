@@ -387,24 +387,26 @@
       particleRoot.parent = diorama;
 
       // -------------------- Shoebox walls --------------------
-      // Five individual planes — back / top / bottom / left only. The
-      // RIGHT wall is deliberately omitted so sunlight streams in
-      // through the opening and the volumetric scattering reads as
-      // real light entering a room. Each plane is oriented so its
-      // normal faces INTO the box (interior-lit).
+      // Solid thin BOXES (not planes) for each surface so the walls
+      // render from every angle and don't get mysteriously culled by
+      // single-side-normal math. Four walls only — back, top, bottom,
+      // left. The right side is deliberately open so sunlight streams
+      // in and the volumetric scattering reads as real light entering
+      // a room.
       let boxDepth = 0.215;
       let letterboxFrac = 0.10;
+      const WALL_THICKNESS = 0.006;
+
       const shoeboxMat = new BJS.PBRMaterial('shoeboxMat', scene);
       shoeboxMat.albedoColor = new BJS.Color3(0.43, 0.36, 0.25);
       shoeboxMat.roughness = 0.92;
       shoeboxMat.metallic = 0.0;
 
       let shoeboxWalls = [];
-      function makeWall(name, width, height, position, rotation) {
-        const m = BJS.MeshBuilder.CreatePlane(name, { width, height }, scene);
+      function makeWallBox(name, width, height, depth, position) {
+        const m = BJS.MeshBuilder.CreateBox(name, { width, height, depth }, scene);
         m.material = shoeboxMat;
         m.position.copyFrom(position);
-        if (rotation) m.rotation.copyFrom(rotation);
         m.receiveShadows = true;
         return m;
       }
@@ -413,23 +415,19 @@
         shoeboxWalls = [];
         const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
         const innerH = h * (1 - 2 * letterboxFrac);
-        // Back: plane in XY at z = -boxDepth, normal +Z (no rotation needed)
-        shoeboxWalls.push(makeWall('wallBack', w, innerH,
-          new BJS.Vector3(0, 0, -boxDepth),
-          new BJS.Vector3(0, 0, 0)));
-        // Top: plane rotated +π/2 around X so normal ends up -Y (facing down)
-        shoeboxWalls.push(makeWall('wallTop', w, boxDepth,
-          new BJS.Vector3(0, innerH / 2, -boxDepth / 2),
-          new BJS.Vector3(Math.PI / 2, 0, 0)));
-        // Bottom: rotated -π/2 around X, normal +Y (facing up)
-        shoeboxWalls.push(makeWall('wallBottom', w, boxDepth,
-          new BJS.Vector3(0, -innerH / 2, -boxDepth / 2),
-          new BJS.Vector3(-Math.PI / 2, 0, 0)));
-        // Left: plane rotated -π/2 around Y so normal ends up +X (facing right, into box)
-        shoeboxWalls.push(makeWall('wallLeft', boxDepth, innerH,
-          new BJS.Vector3(-w / 2, 0, -boxDepth / 2),
-          new BJS.Vector3(0, -Math.PI / 2, 0)));
-        // NO right wall — the opening through which light enters.
+        // Back wall — thin in Z, at the back of the box.
+        shoeboxWalls.push(makeWallBox('wallBack', w, innerH, WALL_THICKNESS,
+          new BJS.Vector3(0, 0, -boxDepth + WALL_THICKNESS / 2)));
+        // Ceiling — thin in Y, above the interior.
+        shoeboxWalls.push(makeWallBox('wallTop', w, WALL_THICKNESS, boxDepth,
+          new BJS.Vector3(0, innerH / 2 - WALL_THICKNESS / 2, -boxDepth / 2)));
+        // Floor — thin in Y, below the interior.
+        shoeboxWalls.push(makeWallBox('wallBottom', w, WALL_THICKNESS, boxDepth,
+          new BJS.Vector3(0, -innerH / 2 + WALL_THICKNESS / 2, -boxDepth / 2)));
+        // Left wall — thin in X.
+        shoeboxWalls.push(makeWallBox('wallLeft', WALL_THICKNESS, innerH, boxDepth,
+          new BJS.Vector3(-w / 2 + WALL_THICKNESS / 2, 0, -boxDepth / 2)));
+        // NO right wall — opening where the window hovers just outside.
       }
       rebuildShoebox();
 
@@ -589,37 +587,41 @@
       // camera can "see" this disc (through scene geometry), rays
       // scatter radially from its screen position — real occlusion-
       // aware god rays instead of additive planes.
-      // Sun disc — free-floating emissive sphere positioned OUTSIDE
-      // the shoebox on the right (past where the right wall used to be
-      // and slightly behind the bonsai). The VolumetricLightScattering
-      // post-process uses it as the light source, so rays radiate from
-      // its screen-space position. The bonsai canopy naturally occludes
-      // part of it → silhouette god-rays streaming down-and-left
-      // through the scene.
-      const sunDiscMat = new BJS.StandardMaterial('sunDiscMat', scene);
-      sunDiscMat.emissiveColor = new BJS.Color3(1.0, 0.92, 0.72);
-      sunDiscMat.disableLighting = true;
-      let sunDisc = null;
+      // Window — rectangular emissive panel hovering just outside the
+      // (removed) right wall. Rectangular so it reads as an actual
+      // window/opening, not a floating sun. Very bright emissive
+      // (HDR > 1) so it bloomed even under heavy tone mapping, and
+      // always drives the VolumetricLightScattering post-process
+      // (bonsai canopy partially occludes → natural god-ray
+      // silhouettes streaming down-and-left across the scene).
+      const windowMat = new BJS.StandardMaterial('windowMat', scene);
+      windowMat.emissiveColor = new BJS.Color3(1.6, 1.45, 1.12);  // HDR-bright
+      windowMat.disableLighting = true;
+      let windowPane = null;
       let godRays = null;   // hoisted — assigned when the VLS pipeline is built below
-      function buildSunDisc() {
+      function buildWindow() {
         const w = screenGeom.widthMeters;
-        const m = BJS.MeshBuilder.CreateSphere('sunDisc', { diameter: 0.08 }, scene);
-        m.material = sunDiscMat;
-        // Position outside the (removed) right wall, slightly elevated,
-        // and pulled back into the box's depth so it reads through the
-        // right-edge view frustum. Chosen so its projected screen
-        // position lands in the upper-right quadrant of the canvas.
-        m.position.set(w / 2 + 0.05, 0.08, -boxDepth * 0.55);
+        const h = screenGeom.heightMeters;
+        const innerH = h * (1 - 2 * letterboxFrac);
+        const winH = innerH * 0.70;           // 70% of interior height
+        const winD = boxDepth * 0.60;         // 60% of box depth
+        const m = BJS.MeshBuilder.CreateBox('windowPane',
+          { width: 0.003, height: winH, depth: winD }, scene);
+        m.material = windowMat;
+        // Position just past the open right side, centred vertically,
+        // middle of the box depth. Ensures the bonsai canopy sits
+        // between the camera and the window.
+        m.position.set(w / 2 + 0.015, 0.0, -boxDepth * 0.5);
         return m;
       }
       function rebuildWindow() {
-        if (sunDisc) sunDisc.dispose();
-        sunDisc = buildSunDisc();
-        if (godRays) godRays.mesh = sunDisc;
+        if (windowPane) windowPane.dispose();
+        windowPane = buildWindow();
+        if (godRays) godRays.mesh = windowPane;
       }
-      sunDisc = buildSunDisc();
+      windowPane = buildWindow();
       // Alias retained for the VLS ctor signature below.
-      const skylight = sunDisc;
+      const skylight = windowPane;
 
       // -------------------- Cinematic post-processing --------------------
       // DefaultRenderingPipeline bundles Bloom + DoF + Chromatic Aberration
