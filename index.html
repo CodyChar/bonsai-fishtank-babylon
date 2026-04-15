@@ -194,8 +194,8 @@
       <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21"><code id="box-d-val">21</code></div>
 
       <h2>Sun / atmosphere</h2>
-      <div class="slider-row"><span>Sun inclination</span><input id="sun-incl" type="range" min="-0.5" max="0.5" step="0.01" value="0.15"><code id="sun-incl-val">0.15</code></div>
-      <div class="slider-row"><span>Sun azimuth</span><input id="sun-azim" type="range" min="0" max="1" step="0.01" value="0.35"><code id="sun-azim-val">0.35</code></div>
+      <div class="slider-row"><span>Sun altitude</span><input id="sun-incl" type="range" min="0" max="1" step="0.01" value="0.5"><code id="sun-incl-val">0.50</code></div>
+      <div class="slider-row"><span>Sun azimuth</span><input id="sun-azim" type="range" min="0" max="1" step="0.01" value="0.75"><code id="sun-azim-val">0.75</code></div>
       <div class="slider-row"><span>Luminance</span><input id="sun-lum" type="range" min="0" max="1.19" step="0.01" value="1.0"><code id="sun-lum-val">1.00</code></div>
 
       <h2>Cinematic</h2>
@@ -573,19 +573,42 @@
       // camera can "see" this disc (through scene geometry), rays
       // scatter radially from its screen position — real occlusion-
       // aware god rays instead of additive planes.
-      const skylight = BJS.MeshBuilder.CreateDisc('skylight', { radius: 0.03, tessellation: 24 }, scene);
-      skylight.parent = diorama;
-      // Local coords inside the diorama; world-target ≈ (0.075, 0.07, -0.145)
-      // — right-of-centre, just under the shoebox ceiling, a bit behind
-      // the bonsai so the canopy partially occludes the disc and the
-      // VolumetricLightScattering post-process produces natural god-ray
-      // silhouettes. Disc normal +Z (no rotation) so the camera always
-      // sees a solid emissive face.
-      skylight.position.set(0.30, 0.36, -0.22);
-      const skylightMat = new BJS.StandardMaterial('skylightMat', scene);
-      skylightMat.emissiveColor = new BJS.Color3(1.0, 0.85, 0.58);
-      skylightMat.disableLighting = true;
-      skylight.material = skylightMat;
+      // Window on the right wall — a thin emissive box that sits just
+      // inside the interior right surface of the shoebox. Looks like a
+      // backlit panel; volumetric light scattering then turns it into
+      // 45°-raking beams that cross the bonsai. Rebuilt whenever the
+      // shoebox dimensions change (screen width, letterbox, box depth)
+      // so it stays pinned to the wall.
+      const windowMat = new BJS.StandardMaterial('windowMat', scene);
+      windowMat.emissiveColor = new BJS.Color3(1.0, 0.92, 0.72);
+      windowMat.disableLighting = true;
+      let windowPane = null;
+      let godRays = null;   // hoisted — assigned when the VLS pipeline is built below
+      function buildWindowMesh() {
+        const w = screenGeom.widthMeters;
+        const h = screenGeom.heightMeters;
+        const innerH = h * (1 - 2 * letterboxFrac);
+        const winH = innerH * 0.45;            // 45% of inner wall height
+        const winD = boxDepth * 0.40;          // 40% of box depth
+        const m = BJS.MeshBuilder.CreateBox('window',
+          { width: 0.003, height: winH, depth: winD }, scene);
+        m.material = windowMat;
+        // Just inside the right wall, centred vertically, middle-back
+        // of the box (so the bonsai canopy occludes part of it and the
+        // VLS produces nice shadow-rays).
+        m.position.set(w / 2 - 0.002, 0.0, -boxDepth * 0.5);
+        return m;
+      }
+      function rebuildWindow() {
+        if (windowPane) windowPane.dispose();
+        windowPane = buildWindowMesh();
+        if (godRays) godRays.mesh = windowPane;
+      }
+      windowPane = buildWindowMesh();
+      // Alias retained for the VLS constructor below — the VLS post-
+      // process is built once and refers to the mesh at that moment;
+      // rebuildWindow() then keeps its `mesh` property in sync.
+      const skylight = windowPane;
 
       // -------------------- Cinematic post-processing --------------------
       // DefaultRenderingPipeline bundles Bloom + DoF + Chromatic Aberration
@@ -632,7 +655,6 @@
       // time to isolate.
       const DIAGNOSTIC_DISABLE_HEAVY_FX = false;
       let ssao = null;
-      let godRays = null;
       if (!DIAGNOSTIC_DISABLE_HEAVY_FX) {
         try {
           if (BJS.SSAO2RenderingPipeline && BJS.SSAO2RenderingPipeline.IsSupported) {
@@ -1183,13 +1205,13 @@
       bindSlider('screen-w', 'screen-w-val', (v, inp) => {
         screenGeom.widthMeters = v / 100;
         document.getElementById('screen-w-val').textContent = inp.value;
-        rebuildShoebox(); rebuildLetterbox();
+        rebuildShoebox(); rebuildLetterbox(); rebuildWindow();
       });
       bindSlider('sit-back', 'sit-back-val', (v, inp) => {
         targetDepth = v / 100;
         document.getElementById('sit-back-val').textContent = inp.value;
       });
-      bindSlider('letterbox', 'letterbox-val', v => { letterboxFrac = v; rebuildLetterbox(); rebuildShoebox(); });
+      bindSlider('letterbox', 'letterbox-val', v => { letterboxFrac = v; rebuildLetterbox(); rebuildShoebox(); rebuildWindow(); });
 
       bindSlider('scene-x', 'scene-x-val', v => diorama.position.x = v);
       bindSlider('scene-y', 'scene-y-val', v => diorama.position.y = v);
@@ -1199,18 +1221,25 @@
       bindSlider('box-d', 'box-d-val', (v, inp) => {
         boxDepth = v / 100;
         document.getElementById('box-d-val').textContent = inp.value;
-        rebuildShoebox();
+        rebuildShoebox(); rebuildWindow();
       });
 
       bindSlider('sun-incl', 'sun-incl-val', v => updateSun());
       bindSlider('sun-azim', 'sun-azim-val', v => updateSun());
       bindSlider('sun-lum', 'sun-lum-val', v => { skyMat.luminance = v; rebuildSkyIBL(); });
       function updateSun() {
+        // Altitude/azimuth spherical parametrisation:
+        //   altitude 0 = horizon, altitude 1 = zenith
+        //   azimuth 0 = -Z (behind), 0.5 = +Z (toward viewer), 0.25 = -X (left), 0.75 = +X (right)
         const incl = parseFloat(document.getElementById('sun-incl').value);
         const azim = parseFloat(document.getElementById('sun-azim').value);
-        const theta = Math.PI * (incl - 0.5);
-        const phi = 2 * Math.PI * (azim - 0.5);
-        const sp = new BJS.Vector3(Math.cos(phi), Math.sin(theta), Math.sin(phi)).normalize();
+        const altitude = incl * Math.PI / 2;
+        const azimuth = (azim - 0.5) * Math.PI * 2;
+        const sp = new BJS.Vector3(
+          Math.cos(altitude) * Math.sin(azimuth),
+          Math.sin(altitude),
+          Math.cos(altitude) * Math.cos(azimuth)
+        ).normalize();
         skyMat.sunPosition = sp;
         sun.direction = sp.scale(-1);
         rebuildSkyIBL();
@@ -1237,6 +1266,7 @@
         engine.resize();
         rebuildShoebox();
         rebuildLetterbox();
+        rebuildWindow();
       });
 
       // -------------------- Render loop --------------------
