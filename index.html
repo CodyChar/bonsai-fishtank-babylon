@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bonsai Fishtank — Cinematic (Babylon)</title>
+
+    <!-- Head-coupled perspective ("fishtank VR") on Babylon.js 9.x.
+         Cinematic upgrade over the three.js version: Hosek-Wilkie sky
+         via Babylon's SkyMaterial, real VolumetricLightScattering for
+         god rays, DefaultRenderingPipeline bundling bloom + DoF +
+         chromatic aberration + film grain + FXAA, SSAO2 for contact
+         shadows, SSR pipeline for the ceramic dish reflection. Off-axis
+         projection (Kooima 2009) rebuilt each frame from the MediaPipe-
+         tracked eye position. -->
+
+    <style>
+      :root { color-scheme: light dark; font-family: -apple-system, system-ui, sans-serif; }
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0a0a0a; color: #e8eef5; }
+      #canvas { width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; }
+
+      #hud {
+        position: fixed; top: 60px; left: 12px; z-index: 10;
+        padding: 10px 14px;
+        background: rgba(10, 14, 22, 0.72);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-radius: 12px;
+        font-size: 13px; line-height: 1.5;
+        min-width: 240px;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+      }
+      #hud h1 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+      #hud h2 { margin: 10px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.5; }
+      #hud .row { display: flex; justify-content: space-between; gap: 12px; }
+      #hud code { color: #ffb36b; font-family: ui-monospace, Menlo, monospace; }
+      .btn {
+        appearance: none; border: 0; border-radius: 8px;
+        padding: 10px 14px; margin: 6px 4px 0 0;
+        background: #d76b3f; color: #fff; font-size: 13px; font-weight: 500;
+        cursor: pointer;
+      }
+      .btn:hover { filter: brightness(1.1); }
+      .btn.secondary { background: #3a4352; }
+      .slider-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; }
+      .slider-row input[type=range] { flex: 1; accent-color: #d76b3f; }
+      .slider-row select { flex: 1; padding: 4px; border-radius: 6px; background: #1a2230; color: #e8eef5; border: 1px solid #3a4352; }
+
+      #preview {
+        position: fixed; bottom: 12px; right: 12px; z-index: 10;
+        width: 180px; height: 135px;
+        border-radius: 8px; overflow: hidden;
+        background: #000;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      #preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+      #preview .dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #ffb36b; box-shadow: 0 0 0 2px #000; pointer-events: none; display: none; }
+
+      #build-stamp {
+        position: fixed; bottom: 8px; left: 12px; z-index: 10;
+        font-size: 10px; opacity: 0.45; font-family: ui-monospace, Menlo, monospace;
+      }
+
+      #hud-toggle {
+        position: fixed; top: 12px; left: 12px; z-index: 50;
+        width: 38px; height: 38px;
+        background: rgba(10,14,22,0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px;
+        cursor: pointer; padding: 0;
+        transition: opacity 0.2s, background 0.2s;
+      }
+      #hud-toggle:hover { background: rgba(20,28,44,0.85); }
+      #hud-toggle span {
+        display: block; width: 18px; height: 2px;
+        background: #e8eef5; border-radius: 1px;
+      }
+      body.ui-hidden #hud, body.ui-hidden #preview, body.ui-hidden #build-stamp,
+      body.ui-hidden #cal-finger-marker { display: none !important; }
+      body.ui-hidden #hud-toggle { opacity: 0.25; }
+      body.ui-hidden #hud-toggle:hover { opacity: 1; }
+
+      /* -------- Calibration overlay (matches three.js version) -------- */
+      #cal-overlay {
+        position: fixed; inset: 0; pointer-events: none; z-index: 30;
+        display: none;
+      }
+      #cal-overlay.active { display: block; }
+      .cal-corner {
+        position: absolute; width: 160px; height: 160px;
+        border: 5px solid rgba(255,255,255,0.45);
+        border-radius: 50%;
+        background: rgba(0,0,0,0.35);
+        box-sizing: border-box;
+        transition: border-color 0.15s, box-shadow 0.15s, transform 0.2s;
+        color: rgba(255,255,255,0.7);
+      }
+      .cal-corner::before, .cal-corner::after {
+        content: ''; position: absolute; background: currentColor; opacity: 0.7;
+      }
+      .cal-corner::before { top: 50%; left: 18%; right: 18%; height: 2px; transform: translateY(-50%); }
+      .cal-corner::after  { left: 50%; top: 18%; bottom: 18%; width: 2px; transform: translateX(-50%); }
+      .cal-corner.active {
+        border-color: #ffb36b; color: #ffb36b; border-width: 7px;
+        box-shadow: 0 0 0 8px rgba(255,179,107,0.22), 0 0 0 16px rgba(255,179,107,0.10), 0 0 90px rgba(255,179,107,0.7);
+        animation: cal-pulse 1.1s ease-in-out infinite;
+      }
+      .cal-corner.done { border-color: #5ed694; color: #5ed694; background: rgba(94,214,148,0.22); box-shadow: 0 0 30px rgba(94,214,148,0.5); }
+      @keyframes cal-pulse { 50% { transform: scale(1.07); } }
+      #cal-tl { top: -80px; left: -80px; }
+      #cal-tr { top: -80px; right: -80px; }
+      #cal-br { bottom: -80px; right: -80px; }
+      #cal-bl { bottom: -80px; left: -80px; }
+      .cal-corner .pin {
+        position: absolute; width: 28px; height: 28px;
+        border: 4px solid #fff; background: rgba(0,0,0,0.7);
+      }
+      #cal-tl .pin { top: 80px; left: 80px; border-right: none; border-bottom: none; }
+      #cal-tr .pin { top: 80px; right: 80px; border-left: none; border-bottom: none; }
+      #cal-br .pin { bottom: 80px; right: 80px; border-left: none; border-top: none; }
+      #cal-bl .pin { bottom: 80px; left: 80px; border-right: none; border-top: none; }
+      .cal-corner.active .pin { border-color: #ffb36b; box-shadow: 0 0 12px #ffb36b; }
+      .cal-corner.done .pin { border-color: #5ed694; }
+
+      #cal-status {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        z-index: 31; background: rgba(10,14,22,0.88);
+        backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+        padding: 22px 32px; border-radius: 16px; text-align: center;
+        max-width: 460px; display: none;
+      }
+      #cal-status.active { display: block; }
+      #cal-status .title { font-size: 14px; opacity: 0.7; margin-bottom: 8px; letter-spacing: 0.06em; text-transform: uppercase; }
+      #cal-status .countdown { font-size: 96px; font-weight: 700; line-height: 1; color: #ffb36b; margin: 4px 0; }
+      #cal-status .countdown.capture { color: #5ed694; font-size: 56px; }
+      #cal-status .instruction { font-size: 14px; opacity: 0.85; line-height: 1.45; }
+      #cal-status .residual { font-size: 12px; opacity: 0.7; margin-top: 8px; font-family: ui-monospace, Menlo, monospace; }
+      #cal-finger-marker {
+        position: fixed; width: 14px; height: 14px;
+        border: 2px solid #ff7bca; border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 32; pointer-events: none; display: none;
+        box-shadow: 0 0 12px #ff7bca;
+      }
+    </style>
+
+    <!-- Babylon.js 7.x+ UMD bundle. Keeps the page to a single HTML
+         file (no build step, GitHub Pages-friendly) while still getting
+         the whole feature set — volumetric, DRP, SSAO2, SSR pipeline,
+         SkyMaterial, GLTF loading. -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+
+    <button id="hud-toggle" aria-label="Toggle UI" title="Show / hide UI (H)">
+      <span></span><span></span><span></span>
+    </button>
+
+    <div id="hud">
+      <h1>Bonsai Fishtank · Cinematic</h1>
+      <div class="row"><span>FPS</span><code id="fps">—</code></div>
+      <div class="row"><span>Face</span><code id="face-status">waiting for camera</code></div>
+      <div class="row"><span>Eye (m)</span><code id="eye-pos">—</code></div>
+      <div>
+        <button id="start-btn" class="btn">Enable Camera</button>
+        <button id="recenter-btn" class="btn secondary" hidden>Recenter</button>
+        <button id="corner-cal-btn" class="btn secondary" hidden>Calibrate Corners</button>
+        <button id="mode-btn" class="btn secondary" hidden>Mode: Face</button>
+      </div>
+      <div class="slider-row" id="camera-picker-row" hidden>
+        <span>Camera</span>
+        <select id="camera-picker"></select>
+      </div>
+
+      <h2>Frame</h2>
+      <div class="slider-row"><span>Screen W (cm)</span><input id="screen-w" type="range" min="15" max="80" step="0.5" value="35.5"><code id="screen-w-val">35.5</code></div>
+      <div class="slider-row"><span>Sit-back (cm)</span><input id="sit-back" type="range" min="20" max="120" step="1" value="61"><code id="sit-back-val">61</code></div>
+      <div class="slider-row"><span>Scale</span><input id="scale" type="range" min="0.2" max="4" step="0.05" value="1.68"><code id="scale-val">1.68</code></div>
+      <div class="slider-row"><span>Letterbox</span><input id="letterbox" type="range" min="0" max="0.35" step="0.005" value="0.10"><code id="letterbox-val">0.10</code></div>
+
+      <h2>Scene</h2>
+      <div class="slider-row"><span>Scene X</span><input id="scene-x" type="range" min="-0.5" max="0.5" step="0.01" value="0"><code id="scene-x-val">0.00</code></div>
+      <div class="slider-row"><span>Scene Y</span><input id="scene-y" type="range" min="-0.5" max="0.5" step="0.01" value="-0.02"><code id="scene-y-val">-0.02</code></div>
+      <div class="slider-row"><span>Scene Z</span><input id="scene-z" type="range" min="-1.0" max="1.0" step="0.01" value="-0.09"><code id="scene-z-val">-0.09</code></div>
+      <div class="slider-row"><span>Scene scale</span><input id="scene-s" type="range" min="0.1" max="5" step="0.05" value="0.25"><code id="scene-s-val">0.25</code></div>
+      <div class="slider-row"><span>Tree scale</span><input id="tree-s" type="range" min="0.1" max="5" step="0.05" value="1.30"><code id="tree-s-val">1.30</code></div>
+      <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21"><code id="box-d-val">21</code></div>
+
+      <h2>Sun / atmosphere</h2>
+      <div class="slider-row"><span>Sun inclination</span><input id="sun-incl" type="range" min="-0.5" max="0.5" step="0.01" value="0.15"><code id="sun-incl-val">0.15</code></div>
+      <div class="slider-row"><span>Sun azimuth</span><input id="sun-azim" type="range" min="0" max="1" step="0.01" value="0.35"><code id="sun-azim-val">0.35</code></div>
+      <div class="slider-row"><span>Luminance</span><input id="sun-lum" type="range" min="0" max="1.19" step="0.01" value="1.0"><code id="sun-lum-val">1.00</code></div>
+
+      <h2>Cinematic</h2>
+      <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
+      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.1" value="1.8"><code id="fx-dof-val">1.8</code></div>
+      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="1.5" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
+      <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
+      <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="10"><code id="fx-chrom-val">10</code></div>
+      <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.35"><code id="fx-vign-val">0.35</code></div>
+      <div class="slider-row"><span>Volumetric</span><input id="fx-vol" type="range" min="0" max="2" step="0.01" value="1.0"><code id="fx-vol-val">1.00</code></div>
+      <div class="slider-row"><span>SSAO</span><input id="fx-ssao" type="range" min="0" max="3" step="0.05" value="1.5"><code id="fx-ssao-val">1.50</code></div>
+    </div>
+
+    <div id="preview">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="dot" id="face-dot"></div>
+    </div>
+
+    <div id="build-stamp">Build 2026-04-14 babylon cinematic</div>
+
+    <div id="cal-overlay">
+      <div class="cal-corner" id="cal-tl" data-corner="TL"><span class="pin"></span></div>
+      <div class="cal-corner" id="cal-tr" data-corner="TR"><span class="pin"></span></div>
+      <div class="cal-corner" id="cal-br" data-corner="BR"><span class="pin"></span></div>
+      <div class="cal-corner" id="cal-bl" data-corner="BL"><span class="pin"></span></div>
+    </div>
+    <div id="cal-status">
+      <div class="title">Corner calibration</div>
+      <div class="countdown" id="cal-countdown">3</div>
+      <div class="instruction" id="cal-instruction">Sit back further than usual so your fingertip stays in the camera's view at full arm's length. Line up your right eye, fingertip, and the highlighted corner pin in a straight line.</div>
+      <div class="residual" id="cal-residual"></div>
+      <div style="margin-top: 12px">
+        <button class="btn secondary" id="cal-cancel">Cancel</button>
+      </div>
+    </div>
+    <div id="cal-finger-marker"></div>
+
+    <script type="module">
+      import { FilesetResolver, FaceLandmarker, HandLandmarker } from
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/vision_bundle.mjs';
+
+      const BJS = BABYLON;
+
+      // -------------------- Engine + scene --------------------
+      const canvas = document.getElementById('canvas');
+      const engine = new BJS.Engine(canvas, true, {
+        preserveDrawingBuffer: true,
+        stencil: true,
+        antialias: true,
+        adaptToDeviceRatio: true
+      });
+      const scene = new BJS.Scene(engine);
+      scene.useRightHandedSystem = true;  // match three.js / our world conventions
+      scene.clearColor = new BJS.Color4(0, 0, 0, 1);
+      scene.autoClear = true;
+
+      // -------------------- Screen geometry --------------------
+      const screenGeom = {
+        widthMeters: 0.355,
+        get heightMeters() {
+          return this.widthMeters * (window.innerHeight / window.innerWidth);
+        }
+      };
+
+      // -------------------- Off-axis camera --------------------
+      // FreeCamera with manually-overridden projection matrix built
+      // frame-by-frame from the current eye position (Kooima 2009).
+      // View matrix is oriented along the screen normal (+Z toward
+      // viewer in our right-handed world) — the same invariant that
+      // avoids the "pivot inversion" bug we hit in three.js.
+      const camera = new BJS.FreeCamera('cam', new BJS.Vector3(0, 0, 0.61), scene);
+      camera.minZ = 0.01;
+      camera.maxZ = 20;
+      camera.fov = Math.PI / 3;  // placeholder, replaced by off-axis each frame
+      camera.inputs.clear();     // no user camera controls — head-coupled only
+
+      const eye = new BJS.Vector3(0, 0, 0.61);
+      const eyeSmoothed = eye.clone();
+      const calibrationOffset = new BJS.Vector3(0, 0, 0);
+      const webcamWorldPos = new BJS.Vector3(0, screenGeom.heightMeters / 2, 0);
+      let userScale = 1.68;
+      let targetDepth = 0.61;
+      let camHeight = -0.05;
+
+      const _offaxisMatrix = new BJS.Matrix();
+      function updateOffAxisCamera() {
+        const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
+        // Screen corners in world space (z=0):
+        const e = eyeSmoothed;
+        const d = e.z;  // distance from eye to screen plane (z=0) along +Z
+        if (d <= 0.02) {
+          camera.getProjectionMatrix = () => BJS.Matrix.PerspectiveFovRH(camera.fov, engine.getAspectRatio(camera), camera.minZ, camera.maxZ);
+          return;
+        }
+        const near = Math.max(0.02, d * 0.1);
+        const s = near / d;
+        const l = (-w/2 - e.x) * s;
+        const r = ( w/2 - e.x) * s;
+        const b = (-h/2 - e.y) * s;
+        const t = ( h/2 - e.y) * s;
+        BJS.Matrix.PerspectiveOffCenterRHToRef(l, r, b, t, near, camera.maxZ, _offaxisMatrix);
+        camera.freezeProjectionMatrix(_offaxisMatrix);
+        camera.position.copyFrom(e);
+        // Look along the screen normal (-Z into the scene, since viewer
+        // is at +Z in our right-handed world). This decouples the view
+        // rotation from the eye's lateral offset — the Kooima invariant.
+        camera.setTarget(new BJS.Vector3(e.x, e.y, e.z - 1));
+      }
+
+      // -------------------- Sky + IBL --------------------
+      // Babylon's SkyMaterial = Hosek-Wilkie atmospheric scattering.
+      const skybox = BJS.MeshBuilder.CreateBox('skybox', { size: 1000 }, scene);
+      skybox.isPickable = false;
+      const skyMat = new BJS.SkyMaterial('skyMat', scene);
+      skyMat.backFaceCulling = false;
+      skyMat.turbidity = 5;
+      skyMat.rayleigh = 2.5;
+      skyMat.mieCoefficient = 0.005;
+      skyMat.mieDirectionalG = 0.85;
+      skyMat.luminance = 1.0;
+      skyMat.useSunPosition = true;
+      skyMat.sunPosition = new BJS.Vector3(0.6, 1.2, 0.8);
+      skybox.material = skyMat;
+      skybox.infiniteDistance = true;
+
+      // Bake sky into an environment texture for PBR IBL — 64×6 cube
+      // rendered from the centre of the sky box, then wrapped into a
+      // HDRCubeTexture-like reflection. Rebuild whenever the sun moves.
+      let envTex = null;
+      function rebuildSkyIBL() {
+        try {
+          const newEnv = new BJS.ReflectionProbe('skyProbe', 128, scene, true);
+          newEnv.renderList.push(skybox);
+          newEnv.refreshRate = BJS.RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+          newEnv.cubeTexture.coordinatesMode = BJS.Texture.CUBIC_MODE;
+          const old = envTex;
+          envTex = newEnv.cubeTexture;
+          scene.environmentTexture = envTex;
+          if (old) old.dispose();
+        } catch (e) {
+          console.warn('[sky] IBL rebuild failed', e);
+        }
+      }
+      rebuildSkyIBL();
+
+      // -------------------- Lighting --------------------
+      // Directional sun (casts shadows through the diorama), hemisphere
+      // for global fill tinted to the sky direction, subtle warm rim.
+      const sun = new BJS.DirectionalLight('sun', new BJS.Vector3(-0.6, -1.2, -0.8).normalize(), scene);
+      sun.diffuse = new BJS.Color3(1.0, 0.88, 0.66);
+      sun.intensity = 2.4;
+      const hemi = new BJS.HemisphericLight('hemi', new BJS.Vector3(0, 1, 0), scene);
+      hemi.diffuse = new BJS.Color3(0.85, 0.82, 0.72);
+      hemi.groundColor = new BJS.Color3(0.18, 0.16, 0.13);
+      hemi.intensity = 0.55;
+      const rim = new BJS.DirectionalLight('rim', new BJS.Vector3(-0.2, -0.8, 1.0).normalize(), scene);
+      rim.diffuse = new BJS.Color3(1.0, 0.84, 0.6);
+      rim.intensity = 0.8;
+
+      // Shadow generator for the sun only.
+      const shadowGen = new BJS.ShadowGenerator(2048, sun);
+      shadowGen.useBlurExponentialShadowMap = true;
+      shadowGen.blurKernel = 32;
+      shadowGen.darkness = 0.25;
+      shadowGen.bias = 0.0005;
+
+      // -------------------- Scene root / diorama --------------------
+      const diorama = new BJS.TransformNode('diorama', scene);
+      diorama.position.set(0, -0.02, -0.09);
+      diorama.scaling.setAll(0.25);
+
+      const treeGroup = new BJS.TransformNode('treeGroup', scene);
+      treeGroup.parent = diorama;
+      treeGroup.scaling.setAll(1.30);
+
+      const particleRoot = new BJS.TransformNode('particleRoot', scene);
+      particleRoot.parent = diorama;
+
+      // -------------------- Shoebox walls --------------------
+      // Inverted box (normals facing inward via backFaceCulling false
+      // and a warm matte material). Height shrinks by the letterbox
+      // fraction so ceiling / floor land at the letterbox inner edge.
+      let boxDepth = 0.21;
+      let letterboxFrac = 0.10;
+      let shoebox = null;
+      const shoeboxMat = new BJS.PBRMaterial('shoeboxMat', scene);
+      shoeboxMat.albedoColor = new BJS.Color3(0.43, 0.36, 0.25);
+      shoeboxMat.roughness = 0.92;
+      shoeboxMat.metallic = 0.0;
+      shoeboxMat.backFaceCulling = false;
+      shoeboxMat.sideOrientation = BJS.Material.CounterClockWiseSideOrientation;
+      // Flip to render only back faces (interior):
+      shoeboxMat.cullBackFaces = false;
+
+      function rebuildShoebox() {
+        if (shoebox) shoebox.dispose();
+        const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
+        const innerH = h * (1 - 2 * letterboxFrac);
+        const b = BJS.MeshBuilder.CreateBox('shoebox',
+          { width: w, height: innerH, depth: boxDepth, sideOrientation: BJS.Mesh.BACKSIDE }, scene);
+        b.material = shoeboxMat;
+        b.position.set(0, 0, -boxDepth / 2);
+        b.receiveShadows = true;
+        shoebox = b;
+      }
+      rebuildShoebox();
+
+      // -------------------- Letterbox bars --------------------
+      const letterboxMat = new BJS.StandardMaterial('letterboxMat', scene);
+      letterboxMat.emissiveColor = new BJS.Color3(0, 0, 0);
+      letterboxMat.diffuseColor = new BJS.Color3(0, 0, 0);
+      letterboxMat.disableLighting = true;
+      letterboxMat.backFaceCulling = false;
+      let letterboxTop = null, letterboxBottom = null;
+      function rebuildLetterbox() {
+        [letterboxTop, letterboxBottom].forEach(m => m?.dispose());
+        letterboxTop = letterboxBottom = null;
+        if (letterboxFrac <= 0) return;
+        const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
+        const barH = h * letterboxFrac;
+        letterboxTop = BJS.MeshBuilder.CreatePlane('lbTop', { width: w, height: barH }, scene);
+        letterboxTop.material = letterboxMat;
+        letterboxTop.position.set(0, h / 2 - barH / 2, -0.001);
+        letterboxBottom = BJS.MeshBuilder.CreatePlane('lbBot', { width: w, height: barH }, scene);
+        letterboxBottom.material = letterboxMat;
+        letterboxBottom.position.set(0, -h / 2 + barH / 2, -0.001);
+      }
+      rebuildLetterbox();
+
+      // -------------------- Pedestal + dish + moss --------------------
+      const pedestal = BJS.MeshBuilder.CreateCylinder('pedestal', {
+        diameterTop: 0.36, diameterBottom: 0.40, height: 0.04, tessellation: 48
+      }, scene);
+      pedestal.parent = treeGroup;
+      pedestal.position.y = -0.18;
+      const pedestalMat = new BJS.PBRMaterial('pedestalMat', scene);
+      pedestalMat.albedoColor = new BJS.Color3(0.42, 0.29, 0.17);
+      pedestalMat.roughness = 0.7;
+      pedestalMat.metallic = 0.03;
+      pedestal.material = pedestalMat;
+      pedestal.receiveShadows = true;
+      shadowGen.addShadowCaster(pedestal);
+
+      const moss = BJS.MeshBuilder.CreateSphere('moss', { diameter: 0.32 }, scene);
+      moss.parent = treeGroup;
+      moss.scaling.y = 0.18;
+      moss.position.y = -0.155;
+      const mossMat = new BJS.PBRMaterial('mossMat', scene);
+      mossMat.albedoColor = new BJS.Color3(0.31, 0.42, 0.18);
+      mossMat.roughness = 1.0;
+      mossMat.sheen.isEnabled = true;
+      mossMat.sheen.intensity = 0.8;
+      mossMat.sheen.roughness = 0.55;
+      mossMat.sheen.color = new BJS.Color3(0.65, 0.77, 0.48);
+      moss.material = mossMat;
+      moss.receiveShadows = true;
+
+      const dish = BJS.MeshBuilder.CreateTorus('dish', {
+        diameter: 0.34, thickness: 0.024, tessellation: 48
+      }, scene);
+      dish.parent = treeGroup;
+      dish.position.y = -0.158;
+      const dishMat = new BJS.PBRMaterial('dishMat', scene);
+      dishMat.albedoColor = new BJS.Color3(0.93, 0.89, 0.81);
+      dishMat.roughness = 0.55;
+      dishMat.clearCoat.isEnabled = true;
+      dishMat.clearCoat.intensity = 1.0;
+      dishMat.clearCoat.roughness = 0.05;
+      dish.material = dishMat;
+      dish.receiveShadows = true;
+      shadowGen.addShadowCaster(dish);
+
+      // -------------------- Scattered rocks --------------------
+      function mulberry32(a) {
+        return function () {
+          let t = a += 0x6D2B79F5;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      const rng = mulberry32(0x42beef);
+      for (let i = 0; i < 9; i++) {
+        const tint = 0.55 + rng() * 0.25;
+        const rock = BJS.MeshBuilder.CreatePolyhedron('rock' + i, { type: 1, size: 1 }, scene);
+        rock.parent = treeGroup;
+        const r = 0.22 + rng() * 0.35;
+        const a = rng() * Math.PI * 2;
+        rock.position.set(Math.cos(a) * r, -0.18, Math.sin(a) * r);
+        rock.scaling.set(
+          0.05 + rng() * 0.08,
+          0.035 + rng() * 0.05,
+          0.05 + rng() * 0.08
+        );
+        rock.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+        const rockMat = new BJS.PBRMaterial('rockMat' + i, scene);
+        rockMat.albedoColor = new BJS.Color3(tint, tint * 0.95, tint * 0.88);
+        rockMat.roughness = 0.9;
+        rockMat.metallic = 0.02;
+        rock.material = rockMat;
+        rock.receiveShadows = true;
+        shadowGen.addShadowCaster(rock);
+      }
+
+      // -------------------- Bonsai GLB --------------------
+      console.info('[bonsai] fetching GLB…');
+      const glbT0 = performance.now();
+      BJS.SceneLoader.ImportMeshAsync('', './', 'bonsai-meshy.glb', scene).then((res) => {
+        const parseMs = (performance.now() - glbT0).toFixed(0);
+        console.info('[bonsai] GLB parsed in ' + parseMs + ' ms, meshes', res.meshes.length);
+        const meshes = res.meshes.filter(m => m.getTotalVertices() > 0);
+        if (!meshes.length) {
+          console.warn('[bonsai] no geometry in GLB'); return;
+        }
+        // Root for moving / scaling the bonsai as a unit.
+        const bonsaiRoot = new BJS.TransformNode('bonsaiRoot', scene);
+        for (const m of res.meshes) {
+          if (!m.parent) m.parent = bonsaiRoot;
+          m.receiveShadows = true;
+          shadowGen.addShadowCaster(m);
+          // Upgrade any PBR foliage-ish materials with sheen.
+          if (m.material && m.material.albedoColor) {
+            const c = m.material.albedoColor;
+            if (c.g > c.r * 1.05 && c.g > c.b * 1.05) {
+              m.material.sheen = m.material.sheen || {};
+              if (m.material.sheen.isEnabled !== undefined) {
+                m.material.sheen.isEnabled = true;
+                m.material.sheen.intensity = 0.8;
+                m.material.sheen.roughness = 0.55;
+                m.material.sheen.color = new BJS.Color3(0.65, 0.77, 0.48);
+              }
+            }
+          }
+        }
+        // Normalise bbox to 0.3 m longest edge, centre at origin.
+        let min = new BJS.Vector3(Infinity, Infinity, Infinity);
+        let max = new BJS.Vector3(-Infinity, -Infinity, -Infinity);
+        for (const m of meshes) {
+          m.computeWorldMatrix(true);
+          const bi = m.getBoundingInfo();
+          const bmin = bi.boundingBox.minimumWorld;
+          const bmax = bi.boundingBox.maximumWorld;
+          min = BJS.Vector3.Minimize(min, bmin);
+          max = BJS.Vector3.Maximize(max, bmax);
+        }
+        const size = max.subtract(min);
+        const longest = Math.max(size.x, size.y, size.z);
+        if (longest > 1e-6) {
+          const s = 0.3 / longest;
+          bonsaiRoot.scaling.setAll(s);
+          const centre = max.add(min).scale(0.5);
+          bonsaiRoot.position.copyFrom(centre.scale(-s));
+        }
+        bonsaiRoot.parent = treeGroup;
+        console.info('[bonsai] ready, bbox', size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+      }).catch(err => console.warn('[bonsai] load failed', err));
+
+      // -------------------- Skylight source (volumetric emitter) --------------------
+      // A tiny emissive disc at the upper-right of the ceiling that
+      // drives the VolumetricLightScatteringPostProcess. When the
+      // camera can "see" this disc (through scene geometry), rays
+      // scatter radially from its screen position — real occlusion-
+      // aware god rays instead of additive planes.
+      const skylight = BJS.MeshBuilder.CreateDisc('skylight', { radius: 0.03, tessellation: 24 }, scene);
+      skylight.parent = diorama;
+      // Local coords inside the diorama; world-target ≈ (0.075, 0.07, -0.145)
+      // — right-of-centre, just under the shoebox ceiling, a bit behind
+      // the bonsai so the canopy partially occludes the disc and the
+      // VolumetricLightScattering post-process produces natural god-ray
+      // silhouettes. Disc normal +Z (no rotation) so the camera always
+      // sees a solid emissive face.
+      skylight.position.set(0.30, 0.36, -0.22);
+      const skylightMat = new BJS.StandardMaterial('skylightMat', scene);
+      skylightMat.emissiveColor = new BJS.Color3(1.0, 0.85, 0.58);
+      skylightMat.disableLighting = true;
+      skylight.material = skylightMat;
+
+      // -------------------- Cinematic post-processing --------------------
+      // DefaultRenderingPipeline bundles Bloom + DoF + Chromatic Aberration
+      // + Grain + Vignette + Tonemap + FXAA in the correct order.
+      const pipeline = new BJS.DefaultRenderingPipeline('drp', true, scene, [camera]);
+      pipeline.samples = 4;
+      pipeline.fxaaEnabled = true;
+
+      pipeline.bloomEnabled = true;
+      pipeline.bloomKernel = 64;
+      pipeline.bloomScale = 0.5;
+      pipeline.bloomThreshold = 0.85;
+      pipeline.bloomWeight = 0.7;
+
+      pipeline.depthOfFieldEnabled = true;
+      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Medium;
+      pipeline.depthOfField.focalLength = 85;        // mm, portrait lens
+      pipeline.depthOfField.fStop = 1.8;
+      pipeline.depthOfField.focusDistance = 550;     // mm → 0.55 m
+      pipeline.depthOfField.lensSize = 50;
+
+      pipeline.chromaticAberrationEnabled = true;
+      pipeline.chromaticAberration.aberrationAmount = 10;
+
+      pipeline.grainEnabled = true;
+      pipeline.grain.intensity = 8;
+      pipeline.grain.animated = true;
+
+      pipeline.imageProcessingEnabled = true;
+      pipeline.imageProcessing.toneMappingEnabled = true;
+      pipeline.imageProcessing.toneMappingType = BJS.ImageProcessingConfiguration.TONEMAPPING_ACES;
+      pipeline.imageProcessing.exposure = 1.0;
+      pipeline.imageProcessing.contrast = 1.05;
+      pipeline.imageProcessing.vignetteEnabled = true;
+      pipeline.imageProcessing.vignetteWeight = 1.5;
+      pipeline.imageProcessing.vignetteColor = new BJS.Color4(0, 0, 0, 0);
+      pipeline.imageProcessing.vignetteBlendMode = BJS.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+      pipeline.imageProcessing.vignetteCameraFov = 0.35;
+
+      // SSAO2 — contact shadows in moss/rock crevices. Only available
+      // when the GPU supports depth textures; gracefully no-op otherwise.
+      let ssao = null;
+      try {
+        if (BJS.SSAO2RenderingPipeline.IsSupported) {
+          ssao = new BJS.SSAO2RenderingPipeline('ssao', scene, {
+            ssaoRatio: 0.5, blurRatio: 1.0
+          }, [camera]);
+          ssao.radius = 0.08;
+          ssao.totalStrength = 1.5;
+          ssao.expensiveBlur = true;
+          ssao.samples = 16;
+          ssao.maxZ = 2.0;
+        } else {
+          console.info('[fx] SSAO2 unsupported on this GPU');
+        }
+      } catch (e) {
+        console.info('[fx] SSAO2 setup failed —', e.message);
+      }
+
+      // Volumetric light scattering from the skylight disc. Real
+      // occlusion-aware god rays — the bonsai canopy casts shadows
+      // through the beam automatically.
+      const godRays = new BJS.VolumetricLightScatteringPostProcess(
+        'godRays', 1.0, camera, skylight, 80, BJS.Texture.BILINEAR_SAMPLINGMODE, engine, false, scene
+      );
+      godRays.exposure = 0.18;
+      godRays.decay = 0.96;
+      godRays.weight = 0.55;
+      godRays.density = 0.9;
+
+      // Screen-Space Reflections — the ceramic dish should pick up a
+      // smudgy reflection of the bonsai trunk above it.
+      try {
+        const ssr = new BJS.SSRRenderingPipeline('ssr', scene, [camera], false, BJS.Constants.TEXTURETYPE_HALF_FLOAT);
+        ssr.strength = 0.5;
+        ssr.reflectivityThreshold = 0.04;
+        ssr.reflectionSpecularFalloffExponent = 3;
+        ssr.maxDistance = 1.0;
+        ssr.maxSteps = 64;
+      } catch (e) {
+        console.info('[fx] SSR pipeline unavailable (needs WebGPU or depth prepass) —', e.message);
+      }
+
+      // -------------------- Drifting petals (Babylon ParticleSystem) --------------------
+      // Generate a soft-falloff disc texture on a 2D canvas so we don't
+      // need to ship a separate asset. Babylon's Texture accepts the
+      // resulting data-URL as a synchronous URL.
+      function makeSoftDiscTexture(colorRgb) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 64;
+        const ctx = c.getContext('2d');
+        const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        g.addColorStop(0, `rgba(${colorRgb},1.0)`);
+        g.addColorStop(0.55, `rgba(${colorRgb},0.45)`);
+        g.addColorStop(1, `rgba(${colorRgb},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 64, 64);
+        return new BJS.Texture(c.toDataURL(), scene, false, false);
+      }
+      const petals = new BJS.ParticleSystem('petals', 220, scene);
+      petals.particleTexture = makeSoftDiscTexture('255, 200, 220');
+      petals.emitter = new BJS.Vector3(0, 0.18, -0.05);
+      petals.minEmitBox = new BJS.Vector3(-0.30, 0.08, -0.30);
+      petals.maxEmitBox = new BJS.Vector3(0.30, 0.25, 0.30);
+      petals.color1 = new BJS.Color4(1.0, 0.78, 0.85, 0.85);
+      petals.color2 = new BJS.Color4(1.0, 0.92, 0.96, 0.75);
+      petals.colorDead = new BJS.Color4(1.0, 0.88, 0.92, 0);
+      petals.minSize = 0.004; petals.maxSize = 0.014;
+      petals.minLifeTime = 2.5; petals.maxLifeTime = 5.0;
+      petals.emitRate = 35;
+      petals.blendMode = BJS.ParticleSystem.BLENDMODE_STANDARD;
+      petals.gravity = new BJS.Vector3(0, -0.04, 0);
+      petals.direction1 = new BJS.Vector3(-0.02, -0.03, -0.02);
+      petals.direction2 = new BJS.Vector3(0.02, -0.01, 0.02);
+      petals.minAngularSpeed = -2; petals.maxAngularSpeed = 2;
+      petals.minEmitPower = 0.01; petals.maxEmitPower = 0.04;
+      petals.isLocal = false;
+      petals.start();
+
+      // Floating dust motes — much smaller, additive, tighter to the beam.
+      const dust = new BJS.ParticleSystem('dust', 300, scene);
+      dust.particleTexture = makeSoftDiscTexture('255, 240, 210');
+      dust.emitter = new BJS.Vector3(0, 0, -0.05);
+      dust.minEmitBox = new BJS.Vector3(-0.20, -0.15, -0.20);
+      dust.maxEmitBox = new BJS.Vector3(0.20, 0.25, 0.20);
+      dust.color1 = new BJS.Color4(1.0, 0.96, 0.85, 0.35);
+      dust.color2 = new BJS.Color4(1.0, 1.0, 0.95, 0.25);
+      dust.colorDead = new BJS.Color4(1.0, 1.0, 0.95, 0);
+      dust.minSize = 0.0015; dust.maxSize = 0.004;
+      dust.minLifeTime = 4; dust.maxLifeTime = 8;
+      dust.emitRate = 50;
+      dust.blendMode = BJS.ParticleSystem.BLENDMODE_ADD;
+      dust.gravity = new BJS.Vector3(0, -0.005, 0);
+      dust.direction1 = new BJS.Vector3(-0.005, 0.005, -0.005);
+      dust.direction2 = new BJS.Vector3(0.005, 0.01, 0.005);
+      dust.minEmitPower = 0.005; dust.maxEmitPower = 0.015;
+      dust.start();
+
+      // -------------------- MediaPipe face / hand tracking --------------------
+      const video = document.getElementById('video');
+      const faceDot = document.getElementById('face-dot');
+      const eyePosEl = document.getElementById('eye-pos');
+      const faceStatusEl = document.getElementById('face-status');
+      const startBtn = document.getElementById('start-btn');
+      const recenterBtn = document.getElementById('recenter-btn');
+      const cornerCalBtn = document.getElementById('corner-cal-btn');
+      const modeBtn = document.getElementById('mode-btn');
+
+      let visionRef = null;
+      let faceLandmarker = null;
+      let handLandmarker = null;
+      let tracking = false;
+      let lastVideoTime = -1;
+      let _matrixLogged = false;
+      let trackingMode = localStorage.getItem('bonsaiBabylonMode') || 'face';
+      const ASSUMED_HFOV_DEG = 60;
+      const REAL_INDEX_LEN = 0.075;
+
+      function withTimeout(p, ms, label) {
+        return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms))]);
+      }
+
+      async function startTracking() {
+        if (/visionOS|AppleWebKit.*XR/i.test(navigator.userAgent)) {
+          throw new Error('Vision Pro Safari does not expose webcam access.');
+        }
+        faceStatusEl.textContent = 'accept camera prompt';
+        const stream = await withTimeout(
+          navigator.mediaDevices.getUserMedia({ video: true, audio: false }),
+          60000, 'Camera permission'
+        );
+        video.srcObject = stream;
+        await withTimeout(new Promise(r => video.onloadedmetadata = r), 5000, 'Video metadata');
+        await video.play();
+        faceStatusEl.textContent = 'loading face model…';
+        visionRef = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm'
+        );
+        faceLandmarker = await FaceLandmarker.createFromOptions(visionRef, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO',
+          numFaces: 1,
+          outputFacialTransformationMatrixes: true
+        });
+        tracking = true;
+        faceStatusEl.textContent = 'tracking';
+        recenterBtn.hidden = false;
+        cornerCalBtn.hidden = false;
+        modeBtn.hidden = false;
+        applyTrackingMode(trackingMode);
+        populateCameraPicker();
+      }
+
+      async function ensureHandLandmarker() {
+        if (handLandmarker) return handLandmarker;
+        if (!visionRef) throw new Error('camera not started');
+        handLandmarker = await HandLandmarker.createFromOptions(visionRef, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO', numHands: 1
+        });
+        return handLandmarker;
+      }
+
+      async function populateCameraPicker() {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cams = devices.filter(d => d.kind === 'videoinput');
+          if (cams.length < 2) return;
+          const picker = document.getElementById('camera-picker');
+          picker.innerHTML = '';
+          for (const c of cams) {
+            const opt = document.createElement('option');
+            opt.value = c.deviceId;
+            opt.textContent = c.label || `Camera ${picker.children.length + 1}`;
+            picker.appendChild(opt);
+          }
+          const currentTrack = video.srcObject?.getVideoTracks()[0];
+          if (currentTrack) picker.value = currentTrack.getSettings().deviceId || cams[0].deviceId;
+          document.getElementById('camera-picker-row').hidden = false;
+          picker.addEventListener('change', async () => {
+            video.srcObject?.getTracks().forEach(t => t.stop());
+            const s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: picker.value } }, audio: false });
+            video.srcObject = s; await video.play();
+          });
+        } catch (e) { console.warn(e); }
+      }
+
+      function tickFace() {
+        if (!tracking || video.readyState < 2) return;
+        if (calibratingCorners) return;
+        if (trackingMode === 'phone') { tickPhone(); return; }
+        if (!faceLandmarker) return;
+        if (video.currentTime === lastVideoTime) return;
+        lastVideoTime = video.currentTime;
+        const res = faceLandmarker.detectForVideo(video, performance.now());
+        const lm = res.faceLandmarks?.[0];
+        if (!lm) { faceStatusEl.textContent = 'no face'; return; }
+        const xform = res.facialTransformationMatrixes?.[0];
+        if (xform && xform.data) {
+          const m = xform.data;
+          const tx = m[12], ty = m[13], tz = m[14];
+          const u = Math.abs(tz) > 5 ? 0.01 : 1.0;
+          if (!_matrixLogged) {
+            console.info('[babylon] face matrix trans', tx.toFixed(3), ty.toFixed(3), tz.toFixed(3), 'unit', u);
+            _matrixLogged = true;
+          }
+          const camX = -tx * u;
+          const camY =  ty * u;
+          const camZ = Math.abs(tz) * u;
+          const wx = webcamWorldPos.x + camX;
+          const wy = webcamWorldPos.y + camY;
+          const wz = webcamWorldPos.z + camZ * userScale;
+          eye.set(
+            wx - calibrationOffset.x,
+            wy - calibrationOffset.y,
+            wz - calibrationOffset.z
+          );
+          faceStatusEl.textContent = 'tracking';
+        }
+        // Preview dot
+        const rIris = lm[468], lIris = lm[473];
+        if (rIris && lIris) {
+          const mx = (rIris.x + lIris.x) / 2;
+          const my = (rIris.y + lIris.y) / 2;
+          faceDot.style.transform = `translate(${(1 - mx) * 180 - 4}px, ${my * 135 - 4}px)`;
+          faceDot.style.display = 'block';
+        }
+      }
+
+      function tickPhone() {
+        if (video.readyState < 2) return;
+        if (video.currentTime === lastVideoTime) return;
+        lastVideoTime = video.currentTime;
+        const now = performance.now();
+        let facePhoneZ = null, faceCamX = 0, faceCamY = 0;
+        if (faceLandmarker) {
+          const r = faceLandmarker.detectForVideo(video, now - 0.5);
+          const x = r.facialTransformationMatrixes?.[0];
+          if (x) {
+            const m = x.data;
+            const u = Math.abs(m[14]) > 5 ? 0.01 : 1.0;
+            facePhoneZ = Math.max(0.10, Math.abs(m[14]) * u - 0.3048);
+            faceCamX = -m[12] * u;
+            faceCamY =  m[13] * u;
+          }
+        }
+        if (!handLandmarker) {
+          ensureHandLandmarker().catch(e => console.warn(e));
+        }
+        let handLm = null;
+        if (handLandmarker) {
+          const r = handLandmarker.detectForVideo(video, now);
+          handLm = r?.landmarks?.[0] || null;
+        }
+        if (!handLm) {
+          if (facePhoneZ !== null) {
+            eye.set(
+              webcamWorldPos.x + faceCamX - calibrationOffset.x,
+              webcamWorldPos.y + faceCamY - calibrationOffset.y,
+              webcamWorldPos.z + facePhoneZ * userScale - calibrationOffset.z
+            );
+            faceStatusEl.textContent = 'phone (face-anchor)';
+          } else {
+            faceStatusEl.textContent = 'no hand / no face';
+          }
+          return;
+        }
+        const vw = video.videoWidth, vh = video.videoHeight;
+        let palmX = 0, palmY = 0;
+        for (const idx of [5, 9, 13, 17]) { palmX += handLm[idx].x; palmY += handLm[idx].y; }
+        palmX = (palmX / 4) * vw; palmY = (palmY / 4) * vh;
+        const dx = (handLm[5].x - handLm[17].x) * vw;
+        const dy = (handLm[5].y - handLm[17].y) * vh;
+        const handSpan = Math.hypot(dx, dy);
+        const lensX = palmX, lensY = palmY - handSpan * 0.8;
+        const f_px = vw / (2 * Math.tan((ASSUMED_HFOV_DEG / 2) * Math.PI / 180));
+        const depth = facePhoneZ !== null ? facePhoneZ : 0.3;
+        const camX = -((lensX - vw / 2)) / f_px * depth;
+        const camY =  ((vh / 2 - lensY)) / f_px * depth;
+        eye.set(
+          webcamWorldPos.x + camX - calibrationOffset.x,
+          webcamWorldPos.y + camY - calibrationOffset.y,
+          webcamWorldPos.z + depth * userScale - calibrationOffset.z
+        );
+        faceStatusEl.textContent = 'phone (hand)';
+      }
+
+      // -------------------- Recenter --------------------
+      recenterBtn.addEventListener('click', () => {
+        const camX = eye.x + calibrationOffset.x;
+        const camY = eye.y - webcamWorldPos.y + calibrationOffset.y;
+        const camZ = Math.max(0.05, (eye.z + calibrationOffset.z) / userScale);
+        userScale = Math.max(0.2, Math.min(4, targetDepth / camZ));
+        scaleInput.value = userScale.toFixed(2);
+        scaleVal.textContent = userScale.toFixed(2);
+        calibrationOffset.set(camX, camY, 0);
+      });
+
+      // -------------------- Mode toggle --------------------
+      function applyTrackingMode(mode) {
+        trackingMode = mode;
+        modeBtn.textContent = 'Mode: ' + (mode === 'phone' ? 'Phone' : 'Face');
+        try { localStorage.setItem('bonsaiBabylonMode', mode); } catch {}
+        if (mode === 'phone') {
+          ensureHandLandmarker().catch(e => {
+            faceStatusEl.textContent = 'hand model error';
+            applyTrackingMode('face');
+          });
+        }
+      }
+      modeBtn.addEventListener('click', () => applyTrackingMode(trackingMode === 'face' ? 'phone' : 'face'));
+
+      // -------------------- Corner calibration --------------------
+      const calOverlay = document.getElementById('cal-overlay');
+      const calStatus = document.getElementById('cal-status');
+      const calCountdownEl = document.getElementById('cal-countdown');
+      const calInstructionEl = document.getElementById('cal-instruction');
+      const calResidualEl = document.getElementById('cal-residual');
+      const calCancelBtn = document.getElementById('cal-cancel');
+      const fingerMarker = document.getElementById('cal-finger-marker');
+      let calibratingCorners = false;
+      let calCancelled = false;
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+      function showCalOverlay() {
+        calOverlay.classList.add('active');
+        calStatus.classList.add('active');
+        for (const k of ['tl','tr','br','bl']) document.getElementById('cal-' + k).classList.remove('active', 'done');
+        calResidualEl.textContent = '';
+      }
+      function hideCalOverlay() { calOverlay.classList.remove('active'); calStatus.classList.remove('active'); fingerMarker.style.display = 'none'; }
+      function activateCornerTarget(c) {
+        for (const k of ['tl','tr','br','bl']) document.getElementById('cal-' + k).classList.toggle('active', k === c.toLowerCase());
+      }
+      function setCornerDone(c) {
+        const el = document.getElementById('cal-' + c.toLowerCase());
+        el.classList.add('done'); el.classList.remove('active');
+      }
+      function setCountdown(t, capture = false) { calCountdownEl.textContent = t; calCountdownEl.classList.toggle('capture', capture); }
+      function setInstruction(t) { calInstructionEl.textContent = t; }
+
+      function captureCalSample() {
+        if (video.readyState < 2 || !handLandmarker || !faceLandmarker) return null;
+        const t = performance.now();
+        const fr = faceLandmarker.detectForVideo(video, t);
+        const hr = handLandmarker.detectForVideo(video, t + 0.5);
+        const xf = fr.facialTransformationMatrixes?.[0];
+        const hand = hr?.landmarks?.[0];
+        if (!xf || !hand) return null;
+        const m = xf.data;
+        const u = Math.abs(m[14]) > 5 ? 0.01 : 1.0;
+        const eyeCam = new BJS.Vector3(-m[12] * u, m[13] * u, Math.abs(m[14]) * u);
+        const tip = hand[8], mcp = hand[5];
+        if (!tip || !mcp) return null;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const f_px = vw / (2 * Math.tan((ASSUMED_HFOV_DEG / 2) * Math.PI / 180));
+        const dxPx = (tip.x - mcp.x) * vw, dyPx = (tip.y - mcp.y) * vh;
+        const fingerPx = Math.hypot(dxPx, dyPx);
+        if (fingerPx < 6) return null;
+        const fingerCamZ = REAL_INDEX_LEN * f_px / fingerPx;
+        const fingerCamX = -((tip.x - 0.5) * vw) / f_px * fingerCamZ;
+        const fingerCamY = -((tip.y - 0.5) * vh) / f_px * fingerCamZ;
+        const fingerCam = new BJS.Vector3(fingerCamX, fingerCamY, fingerCamZ);
+        const previewW = 180, previewH = 135;
+        const previewLeft = window.innerWidth - 12 - previewW;
+        const previewTop = window.innerHeight - 12 - previewH;
+        fingerMarker.style.left = (previewLeft + (1 - tip.x) * previewW) + 'px';
+        fingerMarker.style.top = (previewTop + tip.y * previewH) + 'px';
+        fingerMarker.style.display = 'block';
+        return { eyeCam, fingerCam };
+      }
+
+      function averageSamples(arr) {
+        const e = new BJS.Vector3(0,0,0), f = new BJS.Vector3(0,0,0);
+        for (const s of arr) { e.addInPlace(s.eyeCam); f.addInPlace(s.fingerCam); }
+        e.scaleInPlace(1 / arr.length); f.scaleInPlace(1 / arr.length);
+        return { eyeCam: e, fingerCam: f };
+      }
+
+      function solveCorner(samples) {
+        const hits = {};
+        for (const k of ['TL','TR','BR','BL']) {
+          const { eyeCam, fingerCam } = samples[k];
+          const dz = fingerCam.z - eyeCam.z;
+          if (Math.abs(dz) < 0.005) return { ok: false, reason: 'finger depth too close to eye depth' };
+          const t = (0 - eyeCam.z) / dz;
+          if (t < 1) return { ok: false, reason: 'eye-finger ray points wrong way at ' + k };
+          hits[k] = {
+            x: eyeCam.x + t * (fingerCam.x - eyeCam.x),
+            y: eyeCam.y + t * (fingerCam.y - eyeCam.y)
+          };
+        }
+        const dxWeb = -((hits.TL.x + hits.TR.x + hits.BR.x + hits.BL.x) / 4);
+        const dyWeb = -((hits.TL.y + hits.TR.y + hits.BR.y + hits.BL.y) / 4);
+        const W_x = ((hits.TR.x - hits.TL.x) + (hits.BR.x - hits.BL.x)) / 2;
+        const aspect = window.innerHeight / window.innerWidth;
+        const W_y = ((hits.TL.y - hits.BL.y) + (hits.TR.y - hits.BR.y)) / (2 * aspect);
+        const W = (W_x + W_y) / 2;
+        let res = 0;
+        const expected = {
+          TL: { x: -W/2 - dxWeb, y: +aspect*W/2 - dyWeb },
+          TR: { x: +W/2 - dxWeb, y: +aspect*W/2 - dyWeb },
+          BR: { x: +W/2 - dxWeb, y: -aspect*W/2 - dyWeb },
+          BL: { x: -W/2 - dxWeb, y: -aspect*W/2 - dyWeb }
+        };
+        for (const k of ['TL','TR','BR','BL']) res += Math.hypot(hits[k].x - expected[k].x, hits[k].y - expected[k].y);
+        res /= 4;
+        return { ok: true, W, dxWeb, dyWeb, residual: res };
+      }
+
+      function applyCorner(sol) {
+        if (!isFinite(sol.W) || sol.W <= 0.05 || sol.W > 2.0) return { ok: false, reason: 'implausible width ' + sol.W.toFixed(3) };
+        screenGeom.widthMeters = sol.W;
+        webcamWorldPos.set(sol.dxWeb, sol.dyWeb, 0);
+        const cm = sol.W * 100;
+        if (cm >= 15 && cm <= 80) {
+          document.getElementById('screen-w').value = cm.toFixed(1);
+          document.getElementById('screen-w-val').textContent = cm.toFixed(1);
+        }
+        rebuildShoebox(); rebuildLetterbox();
+        try { localStorage.setItem('bonsaiBabylonCal', JSON.stringify({ W: sol.W, wx: sol.dxWeb, wy: sol.dyWeb })); } catch {}
+        return { ok: true };
+      }
+
+      function tryRestoreCal() {
+        try {
+          const raw = localStorage.getItem('bonsaiBabylonCal');
+          if (!raw) return;
+          const d = JSON.parse(raw);
+          if (typeof d.W !== 'number') return;
+          screenGeom.widthMeters = d.W;
+          webcamWorldPos.set(d.wx || 0, d.wy ?? screenGeom.heightMeters / 2, 0);
+          const cm = d.W * 100;
+          if (cm >= 15 && cm <= 80) {
+            document.getElementById('screen-w').value = cm.toFixed(1);
+            document.getElementById('screen-w-val').textContent = cm.toFixed(1);
+          }
+          rebuildShoebox(); rebuildLetterbox();
+          console.info('[babylon] restored calibration');
+        } catch (e) { console.warn(e); }
+      }
+
+      async function runCornerCal() {
+        if (!tracking || calibratingCorners) return;
+        calibratingCorners = true; calCancelled = false;
+        showCalOverlay();
+        setInstruction('Loading hand model…'); setCountdown('…');
+        try { await ensureHandLandmarker(); } catch (e) {
+          setInstruction('Failed to load hand model: ' + e.message);
+          await sleep(2500); hideCalOverlay(); calibratingCorners = false; return;
+        }
+        if (calCancelled) { hideCalOverlay(); calibratingCorners = false; return; }
+        setInstruction('Sit back further than usual so your fingertip stays in the camera\'s view at full arm\'s length. Line up your right eye, fingertip, and the highlighted corner pin in a straight line.');
+        setCountdown('READY');
+        await sleep(2500);
+        const corners = ['TL','TR','BR','BL'];
+        const samples = {};
+        for (const corner of corners) {
+          if (calCancelled) break;
+          activateCornerTarget(corner);
+          for (let i = 3; i > 0; i--) { if (calCancelled) break; setCountdown(String(i)); await sleep(900); }
+          if (calCancelled) break;
+          setCountdown('SNAP', true);
+          const caps = [];
+          const t0 = performance.now();
+          while (performance.now() - t0 < 600) {
+            const c = captureCalSample();
+            if (c) caps.push(c);
+            await sleep(40);
+          }
+          if (caps.length < 4) {
+            setInstruction(`Couldn't see your hand for ${corner}. Try again.`);
+            await sleep(2500); hideCalOverlay(); calibratingCorners = false; return;
+          }
+          samples[corner] = averageSamples(caps);
+          setCornerDone(corner);
+          await sleep(250);
+        }
+        if (calCancelled) { hideCalOverlay(); calibratingCorners = false; return; }
+        const sol = solveCorner(samples);
+        if (!sol.ok) {
+          setInstruction('Calibration failed: ' + sol.reason); setCountdown('✗');
+          await sleep(3500); hideCalOverlay(); calibratingCorners = false; return;
+        }
+        const ap = applyCorner(sol);
+        if (!ap.ok) {
+          setInstruction('Calibration failed: ' + ap.reason); setCountdown('✗');
+          await sleep(3500); hideCalOverlay(); calibratingCorners = false; return;
+        }
+        setCountdown('✓'); setInstruction('Calibration complete');
+        calResidualEl.textContent = `width = ${(sol.W*100).toFixed(1)} cm   webcam = (${(sol.dxWeb*100).toFixed(1)}, ${(sol.dyWeb*100).toFixed(1)}) cm   residual = ${(sol.residual*100).toFixed(2)} cm`;
+        await sleep(3500); hideCalOverlay(); calibratingCorners = false;
+      }
+      cornerCalBtn.addEventListener('click', () => runCornerCal().catch(e => { console.error(e); hideCalOverlay(); calibratingCorners = false; }));
+      calCancelBtn.addEventListener('click', () => { calCancelled = true; });
+
+      // -------------------- Hamburger + keyboard --------------------
+      const hudToggle = document.getElementById('hud-toggle');
+      function setUIHidden(h) {
+        document.body.classList.toggle('ui-hidden', h);
+        try { localStorage.setItem('bonsaiBabylonUIHidden', h ? '1' : '0'); } catch {}
+      }
+      hudToggle.addEventListener('click', () => setUIHidden(!document.body.classList.contains('ui-hidden')));
+      window.addEventListener('keydown', (ev) => {
+        if (ev.key === 'h' && !(ev.target instanceof HTMLInputElement)) setUIHidden(!document.body.classList.contains('ui-hidden'));
+      });
+      if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
+
+      startBtn.addEventListener('click', (ev) => {
+        ev.currentTarget.disabled = true;
+        startTracking().catch(err => {
+          console.error(err);
+          const msg = err.name === 'NotAllowedError' ? 'camera permission denied'
+            : err.name === 'NotFoundError' ? 'no camera found'
+            : err.name === 'NotReadableError' ? 'camera in use by another app'
+            : err.message.length > 60 ? err.message.slice(0, 58) + '…'
+            : err.message;
+          faceStatusEl.textContent = 'error: ' + msg;
+          ev.currentTarget.disabled = false;
+        });
+      });
+
+      // -------------------- Slider wiring --------------------
+      function bindSlider(id, valId, fn) {
+        const inp = document.getElementById(id);
+        const val = document.getElementById(valId);
+        inp.addEventListener('input', () => {
+          const v = parseFloat(inp.value);
+          val.textContent = isFinite(v) ? v.toFixed(2) : inp.value;
+          fn(v, inp);
+        });
+        return { inp, val };
+      }
+
+      const { inp: scaleInput, val: scaleVal } = bindSlider('scale', 'scale-val', v => { userScale = v; });
+      bindSlider('screen-w', 'screen-w-val', (v, inp) => {
+        screenGeom.widthMeters = v / 100;
+        document.getElementById('screen-w-val').textContent = inp.value;
+        rebuildShoebox(); rebuildLetterbox();
+      });
+      bindSlider('sit-back', 'sit-back-val', (v, inp) => {
+        targetDepth = v / 100;
+        document.getElementById('sit-back-val').textContent = inp.value;
+      });
+      bindSlider('letterbox', 'letterbox-val', v => { letterboxFrac = v; rebuildLetterbox(); rebuildShoebox(); });
+
+      bindSlider('scene-x', 'scene-x-val', v => diorama.position.x = v);
+      bindSlider('scene-y', 'scene-y-val', v => diorama.position.y = v);
+      bindSlider('scene-z', 'scene-z-val', v => diorama.position.z = v);
+      bindSlider('scene-s', 'scene-s-val', v => diorama.scaling.setAll(v));
+      bindSlider('tree-s', 'tree-s-val', v => treeGroup.scaling.setAll(v));
+      bindSlider('box-d', 'box-d-val', (v, inp) => {
+        boxDepth = v / 100;
+        document.getElementById('box-d-val').textContent = inp.value;
+        rebuildShoebox();
+      });
+
+      bindSlider('sun-incl', 'sun-incl-val', v => updateSun());
+      bindSlider('sun-azim', 'sun-azim-val', v => updateSun());
+      bindSlider('sun-lum', 'sun-lum-val', v => { skyMat.luminance = v; rebuildSkyIBL(); });
+      function updateSun() {
+        const incl = parseFloat(document.getElementById('sun-incl').value);
+        const azim = parseFloat(document.getElementById('sun-azim').value);
+        const theta = Math.PI * (incl - 0.5);
+        const phi = 2 * Math.PI * (azim - 0.5);
+        const sp = new BJS.Vector3(Math.cos(phi), Math.sin(theta), Math.sin(phi)).normalize();
+        skyMat.sunPosition = sp;
+        sun.direction = sp.scale(-1);
+        rebuildSkyIBL();
+      }
+      updateSun();
+
+      bindSlider('fx-bloom', 'fx-bloom-val', v => { pipeline.bloomWeight = v; });
+      bindSlider('fx-dof', 'fx-dof-val', v => {
+        pipeline.depthOfFieldEnabled = v > 0;
+        pipeline.depthOfField.fStop = Math.max(0.5, 6 - v);   // invert: high slider = strong blur = low fStop
+      });
+      bindSlider('fx-focus', 'fx-focus-val', v => { pipeline.depthOfField.focusDistance = v * 1000; });
+      bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
+      bindSlider('fx-chrom', 'fx-chrom-val', v => { pipeline.chromaticAberration.aberrationAmount = v; pipeline.chromaticAberrationEnabled = v > 0; });
+      bindSlider('fx-vign', 'fx-vign-val', v => {
+        pipeline.imageProcessing.vignetteWeight = v * 4;
+        pipeline.imageProcessing.vignetteEnabled = v > 0;
+      });
+      bindSlider('fx-vol', 'fx-vol-val', v => { godRays.exposure = 0.18 * v; godRays.weight = 0.55 * v; });
+      bindSlider('fx-ssao', 'fx-ssao-val', v => { if (ssao) ssao.totalStrength = v; });
+
+      // -------------------- Resize --------------------
+      window.addEventListener('resize', () => {
+        engine.resize();
+        rebuildShoebox();
+        rebuildLetterbox();
+      });
+
+      // -------------------- Render loop --------------------
+      const fpsEl = document.getElementById('fps');
+      engine.runRenderLoop(() => {
+        tickFace();
+        // Smooth eye to reduce micro-jitter.
+        BJS.Vector3.LerpToRef(eyeSmoothed, eye, 0.35, eyeSmoothed);
+        const eyeRender = new BJS.Vector3(eyeSmoothed.x, eyeSmoothed.y + camHeight, eyeSmoothed.z);
+        eyeSmoothed.copyFrom(eyeRender);  // apply camHeight to the smoothed value each frame (lazy; fine for now)
+        updateOffAxisCamera();
+        scene.render();
+        fpsEl.textContent = engine.getFps().toFixed(0);
+        eyePosEl.textContent = `${eyeSmoothed.x.toFixed(2)}, ${eyeSmoothed.y.toFixed(2)}, ${eyeSmoothed.z.toFixed(2)}`;
+      });
+
+      tryRestoreCal();
+    </script>
+  </body>
+</html>
