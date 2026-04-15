@@ -298,6 +298,9 @@
         );
       }
       function updateOffAxisCamera(e) {
+        // Fishtank-VR projection is a 2D-screen concept — in immersive
+        // WebXR the headset owns the camera + projection.
+        if (xrInVR) return;
         const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
         const d = e.z;
         if (!(d > 0.02) || !isFinite(d)) return;
@@ -828,6 +831,7 @@
       let faceLandmarker = null;
       let handLandmarker = null;
       let tracking = false;
+      let xrInVR = false;   // true while a WebXR immersive session is active
       let lastVideoTime = -1;
       let _matrixLogged = false;
       let trackingMode = localStorage.getItem('bonsaiBabylonMode') || 'face';
@@ -910,6 +914,7 @@
       }
 
       function tickFace() {
+        if (xrInVR) return;  // headset drives camera in immersive mode
         if (!tracking || video.readyState < 2) return;
         if (calibratingCorners) return;
         if (trackingMode === 'phone') { tickPhone(); return; }
@@ -1348,6 +1353,68 @@
       console.info('[babylon] render loop started');
 
       tryRestoreCal();
+
+      // -------------------- WebXR immersive mode --------------------
+      // Babylon's default XR experience adds an "Enter VR / AR" button
+      // to the page (bottom-right) and handles session lifecycle. While
+      // the session is active we hide the fishtank-VR-only bits
+      // (shoebox walls, letterbox, emissive window, HUD) and reposition
+      // the diorama as a free-floating life-sized object at arm's
+      // length, so the user can walk around it instead of peering at a
+      // tiny box. off-axis projection + MediaPipe tracking skip via
+      // the xrInVR flag (already wired upstream).
+      const xrRestore = {
+        dioramaScale: new BJS.Vector3(),
+        dioramaPos:   new BJS.Vector3(),
+        wallsVisible: []
+      };
+      async function initWebXR() {
+        try {
+          if (!navigator.xr) { console.info('[xr] navigator.xr not present — no VR button'); return; }
+          const supported = await navigator.xr.isSessionSupported?.('immersive-vr').catch(() => false);
+          if (!supported) { console.info('[xr] immersive-vr not supported on this device'); return; }
+
+          const xr = await scene.createDefaultXRExperienceAsync({
+            disableTeleportation: true,  // we want a tabletop diorama, not a traversable scene
+            disableDefaultUI: false      // keep the built-in Enter VR button
+          });
+
+          xr.baseExperience.onStateChangedObservable.add((state) => {
+            if (state === BJS.WebXRState.IN_XR) {
+              xrInVR = true;
+              // Snapshot current diorama transform for restore on exit.
+              xrRestore.dioramaScale.copyFrom(diorama.scaling);
+              xrRestore.dioramaPos.copyFrom(diorama.position);
+              // Life-sized bonsai floating 1 m in front at seated eye height.
+              diorama.scaling.setAll(1.0);
+              diorama.position.set(0, 1.2, -1.0);
+              // Hide fishtank-only chrome.
+              xrRestore.wallsVisible = shoeboxWalls.map(m => m.isVisible);
+              for (const m of shoeboxWalls) m.isVisible = false;
+              if (letterboxTop) letterboxTop.isVisible = false;
+              if (letterboxBottom) letterboxBottom.isVisible = false;
+              if (windowPane) windowPane.isVisible = false;
+              document.body.classList.add('ui-hidden');
+              console.info('[xr] entered immersive mode');
+            } else if (state === BJS.WebXRState.NOT_IN_XR) {
+              xrInVR = false;
+              diorama.scaling.copyFrom(xrRestore.dioramaScale);
+              diorama.position.copyFrom(xrRestore.dioramaPos);
+              shoeboxWalls.forEach((m, i) => { m.isVisible = xrRestore.wallsVisible[i] ?? true; });
+              if (letterboxTop) letterboxTop.isVisible = true;
+              if (letterboxBottom) letterboxBottom.isVisible = true;
+              if (windowPane) windowPane.isVisible = true;
+              document.body.classList.remove('ui-hidden');
+              console.info('[xr] exited immersive mode');
+            }
+          });
+
+          console.info('[xr] WebXR default experience ready — Enter VR button should be visible');
+        } catch (e) {
+          console.info('[xr] WebXR init failed:', e.message);
+        }
+      }
+      initWebXR();
     </script>
   </body>
 </html>
