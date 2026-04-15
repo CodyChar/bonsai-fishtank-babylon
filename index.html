@@ -281,15 +281,11 @@
       let camHeight = -0.05;
 
       const _offaxisMatrix = new BJS.Matrix();
-      function updateOffAxisCamera() {
+      const _camTarget = new BJS.Vector3();
+      function updateOffAxisCamera(e) {
         const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
-        // Screen corners in world space (z=0):
-        const e = eyeSmoothed;
-        const d = e.z;  // distance from eye to screen plane (z=0) along +Z
-        if (d <= 0.02) {
-          camera.getProjectionMatrix = () => BJS.Matrix.PerspectiveFovRH(camera.fov, engine.getAspectRatio(camera), camera.minZ, camera.maxZ);
-          return;
-        }
+        const d = e.z;
+        if (!(d > 0.02) || !isFinite(d)) return;   // guard against NaN / behind-screen
         const near = Math.max(0.02, d * 0.1);
         const s = near / d;
         const l = (-w/2 - e.x) * s;
@@ -302,7 +298,8 @@
         // Look along the screen normal (-Z into the scene, since viewer
         // is at +Z in our right-handed world). This decouples the view
         // rotation from the eye's lateral offset — the Kooima invariant.
-        camera.setTarget(new BJS.Vector3(e.x, e.y, e.z - 1));
+        _camTarget.set(e.x, e.y, e.z - 1);
+        camera.setTarget(_camTarget);
       }
 
       // -------------------- Sky + IBL --------------------
@@ -611,48 +608,61 @@
       pipeline.imageProcessing.vignetteBlendMode = BJS.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
       pipeline.imageProcessing.vignetteCameraFov = 0.35;
 
-      // SSAO2 — contact shadows in moss/rock crevices. Only available
-      // when the GPU supports depth textures; gracefully no-op otherwise.
+      // Heavy post-processes are guarded behind individual try/catch
+      // because any one of them can error on some GPUs and take the
+      // whole render loop down with it. Set DIAGNOSTIC = true to turn
+      // them all off if the scene goes black — then re-enable one at a
+      // time to isolate.
+      const DIAGNOSTIC_DISABLE_HEAVY_FX = false;
       let ssao = null;
-      try {
-        if (BJS.SSAO2RenderingPipeline.IsSupported) {
-          ssao = new BJS.SSAO2RenderingPipeline('ssao', scene, {
-            ssaoRatio: 0.5, blurRatio: 1.0
-          }, [camera]);
-          ssao.radius = 0.08;
-          ssao.totalStrength = 1.5;
-          ssao.expensiveBlur = true;
-          ssao.samples = 16;
-          ssao.maxZ = 2.0;
-        } else {
-          console.info('[fx] SSAO2 unsupported on this GPU');
+      let godRays = null;
+      if (!DIAGNOSTIC_DISABLE_HEAVY_FX) {
+        try {
+          if (BJS.SSAO2RenderingPipeline && BJS.SSAO2RenderingPipeline.IsSupported) {
+            ssao = new BJS.SSAO2RenderingPipeline('ssao', scene, {
+              ssaoRatio: 0.5, blurRatio: 1.0
+            }, [camera]);
+            ssao.radius = 0.08;
+            ssao.totalStrength = 1.5;
+            ssao.expensiveBlur = true;
+            ssao.samples = 16;
+            ssao.maxZ = 2.0;
+            console.info('[fx] SSAO2 on');
+          } else {
+            console.info('[fx] SSAO2 unsupported on this GPU');
+          }
+        } catch (e) {
+          console.warn('[fx] SSAO2 failed —', e.message);
+          ssao = null;
         }
-      } catch (e) {
-        console.info('[fx] SSAO2 setup failed —', e.message);
-      }
 
-      // Volumetric light scattering from the skylight disc. Real
-      // occlusion-aware god rays — the bonsai canopy casts shadows
-      // through the beam automatically.
-      const godRays = new BJS.VolumetricLightScatteringPostProcess(
-        'godRays', 1.0, camera, skylight, 80, BJS.Texture.BILINEAR_SAMPLINGMODE, engine, false, scene
-      );
-      godRays.exposure = 0.18;
-      godRays.decay = 0.96;
-      godRays.weight = 0.55;
-      godRays.density = 0.9;
+        try {
+          godRays = new BJS.VolumetricLightScatteringPostProcess(
+            'godRays', 1.0, camera, skylight, 80, BJS.Texture.BILINEAR_SAMPLINGMODE, engine, false, scene
+          );
+          godRays.exposure = 0.18;
+          godRays.decay = 0.96;
+          godRays.weight = 0.55;
+          godRays.density = 0.9;
+          console.info('[fx] Volumetric light scattering on');
+        } catch (e) {
+          console.warn('[fx] Volumetric light scattering failed —', e.message);
+          godRays = null;
+        }
 
-      // Screen-Space Reflections — the ceramic dish should pick up a
-      // smudgy reflection of the bonsai trunk above it.
-      try {
-        const ssr = new BJS.SSRRenderingPipeline('ssr', scene, [camera], false, BJS.Constants.TEXTURETYPE_HALF_FLOAT);
-        ssr.strength = 0.5;
-        ssr.reflectivityThreshold = 0.04;
-        ssr.reflectionSpecularFalloffExponent = 3;
-        ssr.maxDistance = 1.0;
-        ssr.maxSteps = 64;
-      } catch (e) {
-        console.info('[fx] SSR pipeline unavailable (needs WebGPU or depth prepass) —', e.message);
+        try {
+          const ssr = new BJS.SSRRenderingPipeline('ssr', scene, [camera], false, BJS.Constants.TEXTURETYPE_HALF_FLOAT);
+          ssr.strength = 0.5;
+          ssr.reflectivityThreshold = 0.04;
+          ssr.reflectionSpecularFalloffExponent = 3;
+          ssr.maxDistance = 1.0;
+          ssr.maxSteps = 64;
+          console.info('[fx] SSR on');
+        } catch (e) {
+          console.info('[fx] SSR unavailable —', e.message);
+        }
+      } else {
+        console.warn('[fx] heavy post-processes disabled by DIAGNOSTIC flag');
       }
 
       // -------------------- Drifting petals (Babylon ParticleSystem) --------------------
@@ -1202,7 +1212,7 @@
         pipeline.imageProcessing.vignetteWeight = v * 4;
         pipeline.imageProcessing.vignetteEnabled = v > 0;
       });
-      bindSlider('fx-vol', 'fx-vol-val', v => { godRays.exposure = 0.18 * v; godRays.weight = 0.55 * v; });
+      bindSlider('fx-vol', 'fx-vol-val', v => { if (godRays) { godRays.exposure = 0.18 * v; godRays.weight = 0.55 * v; } });
       bindSlider('fx-ssao', 'fx-ssao-val', v => { if (ssao) ssao.totalStrength = v; });
 
       // -------------------- Resize --------------------
@@ -1214,17 +1224,26 @@
 
       // -------------------- Render loop --------------------
       const fpsEl = document.getElementById('fps');
+      const _renderEye = new BJS.Vector3();
+      let _loopFrame = 0;
       engine.runRenderLoop(() => {
-        tickFace();
-        // Smooth eye to reduce micro-jitter.
-        BJS.Vector3.LerpToRef(eyeSmoothed, eye, 0.35, eyeSmoothed);
-        const eyeRender = new BJS.Vector3(eyeSmoothed.x, eyeSmoothed.y + camHeight, eyeSmoothed.z);
-        eyeSmoothed.copyFrom(eyeRender);  // apply camHeight to the smoothed value each frame (lazy; fine for now)
-        updateOffAxisCamera();
-        scene.render();
-        fpsEl.textContent = engine.getFps().toFixed(0);
-        eyePosEl.textContent = `${eyeSmoothed.x.toFixed(2)}, ${eyeSmoothed.y.toFixed(2)}, ${eyeSmoothed.z.toFixed(2)}`;
+        try {
+          tickFace();
+          // Smooth eye to reduce micro-jitter — eyeSmoothed is NEVER
+          // mutated by camHeight (that was a drift bug in v1).
+          BJS.Vector3.LerpToRef(eyeSmoothed, eye, 0.35, eyeSmoothed);
+          _renderEye.copyFrom(eyeSmoothed);
+          _renderEye.y += camHeight;
+          updateOffAxisCamera(_renderEye);
+          scene.render();
+          fpsEl.textContent = engine.getFps().toFixed(0);
+          eyePosEl.textContent = `${_renderEye.x.toFixed(2)}, ${_renderEye.y.toFixed(2)}, ${_renderEye.z.toFixed(2)}`;
+        } catch (e) {
+          if (_loopFrame < 3) console.error('[loop]', e);
+          _loopFrame++;
+        }
       });
+      console.info('[babylon] render loop started');
 
       tryRestoreCal();
     </script>
