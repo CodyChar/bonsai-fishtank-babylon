@@ -614,12 +614,54 @@
         m.position.set(w / 2 + 0.015, 0.0, -boxDepth * 0.5);
         return m;
       }
+      // Physical light that corresponds to the window — a real source
+      // that illuminates the scene (not just an emissive-looking mesh).
+      // RectAreaLight matches the window's shape and produces physically-
+      // correct soft falloff; falls back to a wide SpotLight if the
+      // RectAreaLight class isn't present on the current Babylon build.
+      let windowLight = null;
+      function buildWindowLight() {
+        const w = screenGeom.widthMeters;
+        const h = screenGeom.heightMeters;
+        const innerH = h * (1 - 2 * letterboxFrac);
+        const winH = innerH * 0.70;
+        const winD = boxDepth * 0.60;
+        const pos = new BJS.Vector3(w / 2 + 0.01, 0, -boxDepth * 0.5);
+        try {
+          if (typeof BJS.RectAreaLight !== 'function') throw new Error('no RectAreaLight');
+          const L = new BJS.RectAreaLight('windowLight', pos, scene);
+          // Point into the box (toward -X).
+          if (L.direction) L.direction = new BJS.Vector3(-1, 0, 0);
+          L.width = winD;
+          L.height = winH;
+          L.diffuse = new BJS.Color3(1.0, 0.92, 0.72);
+          L.specular = new BJS.Color3(1.0, 0.92, 0.72);
+          L.intensity = 25;
+          console.info('[lights] RectAreaLight active at window');
+          return L;
+        } catch (e) {
+          console.info('[lights] RectAreaLight unavailable, using SpotLight fallback —', e.message);
+          // Push the SpotLight slightly farther outside so its cone
+          // spans the shoebox from outside-in.
+          const L = new BJS.SpotLight('windowLight',
+            new BJS.Vector3(w / 2 + 0.04, 0, -boxDepth * 0.5),
+            new BJS.Vector3(-1, 0, 0),
+            Math.PI * 0.48, 3, scene);
+          L.diffuse = new BJS.Color3(1.0, 0.92, 0.72);
+          L.specular = new BJS.Color3(1.0, 0.92, 0.72);
+          L.intensity = 1.6;
+          return L;
+        }
+      }
       function rebuildWindow() {
         if (windowPane) windowPane.dispose();
         windowPane = buildWindow();
         if (godRays) godRays.mesh = windowPane;
+        if (windowLight) windowLight.dispose();
+        windowLight = buildWindowLight();
       }
       windowPane = buildWindow();
+      windowLight = buildWindowLight();
       // Alias retained for the VLS ctor signature below.
       const skylight = windowPane;
 
