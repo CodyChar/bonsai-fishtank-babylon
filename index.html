@@ -282,17 +282,32 @@
 
       const _offaxisMatrix = new BJS.Matrix();
       const _camTarget = new BJS.Vector3();
+      // Off-axis RH perspective matrix built manually — Babylon 9.x
+      // dropped the `PerspectiveOffCenterRHToRef` static, so we write
+      // the 16 elements directly via FromValuesToRef. Conventions:
+      //   OpenGL RH (camera looks down -Z, NDC z in [-1, 1]).
+      //   Column-major storage: args 0-3 = column 0, 4-7 = column 1, ...
+      function buildOffaxisRH(l, r, b, t, n, f, out) {
+        const rl = r - l, tb = t - b, fn = f - n;
+        BJS.Matrix.FromValuesToRef(
+          (2 * n) / rl, 0,            0,                    0,    // col 0
+          0,            (2 * n) / tb, 0,                    0,    // col 1
+          (r + l) / rl, (t + b) / tb, -(f + n) / fn,       -1,    // col 2
+          0,            0,            -(2 * f * n) / fn,    0,    // col 3
+          out
+        );
+      }
       function updateOffAxisCamera(e) {
         const w = screenGeom.widthMeters, h = screenGeom.heightMeters;
         const d = e.z;
-        if (!(d > 0.02) || !isFinite(d)) return;   // guard against NaN / behind-screen
+        if (!(d > 0.02) || !isFinite(d)) return;
         const near = Math.max(0.02, d * 0.1);
         const s = near / d;
         const l = (-w/2 - e.x) * s;
         const r = ( w/2 - e.x) * s;
         const b = (-h/2 - e.y) * s;
         const t = ( h/2 - e.y) * s;
-        BJS.Matrix.PerspectiveOffCenterRHToRef(l, r, b, t, near, camera.maxZ, _offaxisMatrix);
+        buildOffaxisRH(l, r, b, t, near, camera.maxZ, _offaxisMatrix);
         camera.freezeProjectionMatrix(_offaxisMatrix);
         camera.position.copyFrom(e);
         // Look along the screen normal (-Z into the scene, since viewer
