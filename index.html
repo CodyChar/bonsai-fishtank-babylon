@@ -393,14 +393,16 @@
       let boxDepth = 0.21;
       let letterboxFrac = 0.10;
       let shoebox = null;
+      // Inverted shoebox. The BACKSIDE side-orientation on the MESH
+      // flips the winding order at build time so the "inside" surfaces
+      // are now the front-facing triangles. Keep the material's default
+      // backFaceCulling = true so the camera (outside the box) sees
+      // ONLY those now-front interior walls — no X-ray double-draw, no
+      // culled geometry.
       const shoeboxMat = new BJS.PBRMaterial('shoeboxMat', scene);
       shoeboxMat.albedoColor = new BJS.Color3(0.43, 0.36, 0.25);
       shoeboxMat.roughness = 0.92;
       shoeboxMat.metallic = 0.0;
-      shoeboxMat.backFaceCulling = false;
-      shoeboxMat.sideOrientation = BJS.Material.CounterClockWiseSideOrientation;
-      // Flip to render only back faces (interior):
-      shoeboxMat.cullBackFaces = false;
 
       function rebuildShoebox() {
         if (shoebox) shoebox.dispose();
