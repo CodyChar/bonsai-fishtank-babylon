@@ -79,37 +79,37 @@
          vertically centred. Fades out as the user leans toward the
          screen — the 3D forecast carousel takes over up close. */
       #now-card {
-        position: fixed; top: 50%; right: 4vw;
+        position: fixed; top: 50%; right: 3.5vw;
         transform: translateY(-50%);
         z-index: 15;
-        width: min(28vw, 360px);
-        padding: 26px 26px 28px;
+        width: min(38vw, 480px);
+        padding: 38px 40px 40px;
         color: #fff;
         font-family: system-ui, -apple-system, sans-serif;
         background: linear-gradient(180deg,
-          rgba(255,255,255,0.22) 0%,
-          rgba(255,255,255,0.10) 50%,
-          rgba(255,255,255,0.16) 100%);
-        backdrop-filter: blur(26px) saturate(160%);
-        -webkit-backdrop-filter: blur(26px) saturate(160%);
-        border: 1px solid rgba(255,255,255,0.32);
-        border-radius: 22px;
-        box-shadow: 0 14px 40px rgba(0,0,0,0.35),
-                    inset 0 1px 0 rgba(255,255,255,0.28);
+          rgba(255,255,255,0.32) 0%,
+          rgba(255,255,255,0.18) 50%,
+          rgba(255,255,255,0.24) 100%);
+        backdrop-filter: blur(30px) saturate(170%);
+        -webkit-backdrop-filter: blur(30px) saturate(170%);
+        border: 1px solid rgba(255,255,255,0.40);
+        border-radius: 28px;
+        box-shadow: 0 20px 56px rgba(0,0,0,0.45),
+                    inset 0 1px 0 rgba(255,255,255,0.36);
         transition: opacity .35s ease;
         pointer-events: auto;
         cursor: grab;
         user-select: none;
         touch-action: none;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+        text-shadow: 0 1px 3px rgba(0,0,0,0.55);
       }
       #now-card.dragging { cursor: grabbing; transition: none; }
-      #now-card .now-loc  { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; margin-bottom: 4px; }
-      #now-card .now-day  { font-size: 22px; font-weight: 600; }
-      #now-card .now-date { font-size: 12px; opacity: .7; margin-top: 2px; margin-bottom: 14px; }
-      #now-card .now-temp { font-size: 64px; font-weight: 200; line-height: 1; margin-bottom: 6px; }
-      #now-card .now-cond { font-size: 16px; opacity: .92; margin-bottom: 14px; }
-      #now-card .now-hilo { display: flex; gap: 22px; font-size: 14px; opacity: .78; }
+      #now-card .now-loc  { font-size: 14px; letter-spacing: .14em; text-transform: uppercase; opacity: .88; margin-bottom: 8px; font-weight: 500; }
+      #now-card .now-day  { font-size: 32px; font-weight: 600; line-height: 1.1; }
+      #now-card .now-date { font-size: 16px; opacity: .82; margin-top: 4px; margin-bottom: 22px; }
+      #now-card .now-temp { font-size: 96px; font-weight: 200; line-height: 1; margin-bottom: 10px; letter-spacing: -0.03em; }
+      #now-card .now-cond { font-size: 22px; opacity: 1; margin-bottom: 22px; font-weight: 500; }
+      #now-card .now-hilo { display: flex; gap: 30px; font-size: 18px; opacity: .88; font-weight: 500; }
       body.ui-hidden #now-card { /* stays visible — weather is always on */ }
 
 
