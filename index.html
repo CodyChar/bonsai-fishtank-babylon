@@ -666,7 +666,8 @@
         const t = i / (FORECAST_DAYS - 1);
         const angle = -FORECAST_ARC * 0.5 + FORECAST_ARC * t;
         const card = BJS.MeshBuilder.CreatePlane('forecastCard' + i,
-          { width: FORECAST_CARD_W, height: FORECAST_CARD_H }, scene);
+          { width: FORECAST_CARD_W, height: FORECAST_CARD_H, sideOrientation: BJS.Mesh.DOUBLESIDE },
+          scene);
         card.position.set(
           Math.sin(angle) * FORECAST_RADIUS,
           FORECAST_CARD_Y,
@@ -680,10 +681,13 @@
         const mat = new BJS.StandardMaterial('forecastMat' + i, scene);
         mat.diffuseTexture = tex;
         mat.emissiveTexture = tex;
+        mat.emissiveColor = new BJS.Color3(1, 1, 1);
         mat.useAlphaFromDiffuseTexture = true;
         mat.disableLighting = true;
-        mat.backFaceCulling = true;
+        mat.backFaceCulling = false;          // render both sides as a safety net
+        mat.transparencyMode = BJS.Material.MATERIAL_ALPHABLEND;
         card.material = mat;
+        card.alwaysSelectAsActiveMesh = true; // skip frustum culling — we know they're visible
         forecastCards.push({ card, tex });
       }
       function paintForecastCard(slot, day) {
@@ -699,7 +703,7 @@
         ctx.lineTo(R, H);     ctx.quadraticCurveTo(0, H, 0, H - R);
         ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(20, 26, 38, 0.62)';
+        ctx.fillStyle = 'rgba(20, 26, 38, 0.92)';   // bumped opacity so cards can't disappear into the scene
         ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.16)';
         ctx.lineWidth = 2;
