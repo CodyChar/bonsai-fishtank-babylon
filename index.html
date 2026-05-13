@@ -1543,21 +1543,34 @@
           new BJS.Color3(1.0, 0.9, 0.6),
           windowLight.position ? windowLight.position.clone() : null);
       }
-      // Per-frame sync. Explicit world-matrix forward calc (independent
-      // of Babylon's handedness-aware .forward getter) for reliability.
+      // Per-frame sync. Mutating light.direction in place doesn't always
+      // invalidate Babylon's internal caches (ShadowLight._cache.direction,
+      // material light-dirty state, etc.), so we REASSIGN to a fresh
+      // Vector3 each frame and explicitly poke the dirty path. Cheap —
+      // three handles, three allocations per frame.
       const _localZ = new BJS.Vector3(0, 0, 1);
-      const _worldFwd = new BJS.Vector3();
+      let _lightSyncTick = 0;
       scene.onBeforeRenderObservable.add(() => {
         for (const { handle, light } of lightHandles) {
           handle.computeWorldMatrix(true);
           if (!(light instanceof BJS.DirectionalLight) && light.position) {
-            light.position.copyFrom(handle.absolutePosition);
+            light.position = handle.absolutePosition.clone();
           }
           if (light.direction) {
-            BJS.Vector3.TransformNormalToRef(_localZ, handle.getWorldMatrix(), _worldFwd);
-            _worldFwd.normalize();
-            light.direction.copyFrom(_worldFwd);
+            const fwd = new BJS.Vector3();
+            BJS.Vector3.TransformNormalToRef(_localZ, handle.getWorldMatrix(), fwd);
+            fwd.normalize();
+            light.direction = fwd;
+            // Bust caches that some Babylon versions key on previous direction.
+            if (light._cache) light._cache.direction = undefined;
+            if (light._uniformBuffer && light._uniformBuffer._needSync !== undefined) light._uniformBuffer._needSync = true;
           }
+        }
+        if (window.DEBUG_LIGHTS && (++_lightSyncTick % 30 === 0)) {
+          console.log('[lights]', lightHandles.map(({ handle, light }) => {
+            const d = light.direction;
+            return `${light.name}: dir=(${d.x.toFixed(2)},${d.y.toFixed(2)},${d.z.toFixed(2)})`;
+          }).join(' | '));
         }
       });
       function setLightHandlesVisible(v) {
