@@ -96,7 +96,7 @@
         border-radius: 28px;
         box-shadow: 0 20px 56px rgba(0,0,0,0.45),
                     inset 0 1px 0 rgba(255,255,255,0.36);
-        transition: opacity .35s ease;
+        transition: opacity .23s ease;
         pointer-events: auto;
         cursor: grab;
         user-select: none;
@@ -746,6 +746,11 @@
         card.material = mat;
         forecastCards.push({ card, tex });
       }
+      // Put forecast cards in their own rendering group with a depth
+      // clear so the Gaussian-splat draw above doesn't occlude them
+      // intermittently as its per-frame splat sort changes.
+      scene.setRenderingAutoClearDepthStencil(1, true, true, true);
+      for (const { card } of forecastCards) card.renderingGroupId = 1;
       function paintForecastCard(slot, day) {
         const tex = slot.tex;
         const ctx = tex.getContext();
@@ -1902,7 +1907,7 @@
       let proxThresholdZFace  = 0.70;     // metres; HUD-bound
       let proxThresholdZPhone = 0.40;     // metres; HUD-bound
       const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
-      const PROX_FADE_RATE  = 0.12;       // ease per frame
+      const PROX_FADE_RATE  = 0.18;       // ease per frame (50% snappier)
       let proxState = 'far';
       let proxAnim  = 0;
       const nowCardEl = document.getElementById('now-card');
