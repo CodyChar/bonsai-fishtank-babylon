@@ -1230,8 +1230,89 @@
         try { localStorage.setItem('bonsaiBabylonUIHidden', h ? '1' : '0'); } catch {}
       }
       hudToggle.addEventListener('click', () => setUIHidden(!document.body.classList.contains('ui-hidden')));
+
+      // -------------------- Authoring tools: Inspector + Gizmos --------------------
+      // Meshes that should never receive gizmos (room shell + overlays).
+      const GIZMO_EXCLUDE = new Set([
+        'skybox', 'wallBack', 'wallTop', 'wallBottom', 'wallLeft',
+        'lbTop', 'lbBot', 'windowPane',
+      ]);
+
+      const toast = (() => {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;left:50%;bottom:64px;transform:translateX(-50%);' +
+          'background:rgba(0,0,0,.7);color:#fff;padding:6px 12px;border-radius:6px;' +
+          'font:13px system-ui;z-index:60;opacity:0;transition:opacity .15s;pointer-events:none;';
+        document.body.appendChild(el);
+        let t;
+        return (msg) => {
+          el.textContent = msg;
+          el.style.opacity = '1';
+          clearTimeout(t);
+          t = setTimeout(() => { el.style.opacity = '0'; }, 1400);
+        };
+      })();
+
+      let inspectorLoading = null;
+      function loadInspector() {
+        if (inspectorLoading) return inspectorLoading;
+        inspectorLoading = new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.babylonjs.com/inspector/babylon.inspector.bundle.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+        return inspectorLoading;
+      }
+      async function toggleInspector() {
+        try {
+          await loadInspector();
+          if (scene.debugLayer.isVisible()) {
+            scene.debugLayer.hide();
+            toast('Inspector off');
+          } else {
+            scene.debugLayer.show({ embedMode: true, overlay: true });
+            toast('Inspector on');
+          }
+        } catch (e) {
+          console.error('Inspector failed to load', e);
+          toast('Inspector failed');
+        }
+      }
+
+      let gizmoManager = null;
+      let gizmoEnabled = false;
+      function toggleGizmos() {
+        gizmoEnabled = !gizmoEnabled;
+        if (!gizmoManager) {
+          gizmoManager = new BJS.GizmoManager(scene);
+          gizmoManager.usePointerToAttachGizmos = false;
+          gizmoManager.boundingBoxGizmoEnabled = false;
+          // Click a mesh to attach gizmos; click empty space to detach.
+          scene.onPointerObservable.add((pi) => {
+            if (!gizmoEnabled) return;
+            if (pi.type !== BJS.PointerEventTypes.POINTERDOWN) return;
+            if (pi.event.button !== 0) return;
+            const hit = scene.pick(scene.pointerX, scene.pointerY,
+              (m) => m.isPickable !== false && !GIZMO_EXCLUDE.has(m.name));
+            gizmoManager.attachToMesh(hit && hit.hit ? hit.pickedMesh : null);
+          });
+        }
+        gizmoManager.positionGizmoEnabled = gizmoEnabled;
+        gizmoManager.rotationGizmoEnabled = gizmoEnabled;
+        gizmoManager.scaleGizmoEnabled = gizmoEnabled;
+        if (!gizmoEnabled) gizmoManager.attachToMesh(null);
+        toast(gizmoEnabled ? 'Gizmos on — click a mesh' : 'Gizmos off');
+      }
+
       window.addEventListener('keydown', (ev) => {
-        if (ev.key === 'h' && !(ev.target instanceof HTMLInputElement)) setUIHidden(!document.body.classList.contains('ui-hidden'));
+        if (ev.target instanceof HTMLInputElement) return;
+        if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+        const k = ev.key.toLowerCase();
+        if (k === 'h') setUIHidden(!document.body.classList.contains('ui-hidden'));
+        else if (k === 'i') toggleInspector();
+        else if (k === 'g') toggleGizmos();
       });
       if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
 
