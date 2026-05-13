@@ -62,6 +62,18 @@
         font-size: 10px; opacity: 0.45; font-family: ui-monospace, Menlo, monospace;
       }
 
+      #author-bar {
+        position: fixed; bottom: 28px; left: 12px; z-index: 20;
+        display: flex; gap: 6px;
+        background: rgba(10,14,22,0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 6px;
+      }
+      #author-bar .btn { margin: 0; padding: 6px 12px; font-size: 12px; }
+
       #hud-toggle {
         position: fixed; top: 12px; left: 12px; z-index: 50;
         width: 38px; height: 38px;
@@ -162,6 +174,11 @@
     <button id="hud-toggle" aria-label="Toggle UI" title="Show / hide UI (H)">
       <span></span><span></span><span></span>
     </button>
+
+    <div id="author-bar">
+      <button id="save-btn" class="btn secondary" title="Snapshot transforms to localStorage + console">Save Scene</button>
+      <button id="reset-btn" class="btn secondary" title="Clear saved snapshot — reload to revert">Reset</button>
+    </div>
 
     <div id="hud">
       <h1>Bonsai Fishtank · Cinematic</h1>
@@ -1305,7 +1322,8 @@
         gizmoManager.rotationGizmoEnabled = gizmoEnabled;
         gizmoManager.scaleGizmoEnabled = gizmoEnabled;
         if (!gizmoEnabled) gizmoManager.attachToMesh(null);
-        toast(gizmoEnabled ? 'Gizmos on — click a mesh' : 'Gizmos off');
+        if (typeof setLightHandlesVisible === 'function') setLightHandlesVisible(gizmoEnabled);
+        toast(gizmoEnabled ? 'Gizmos on — click a mesh or light bulb' : 'Gizmos off');
       }
 
       // Free-orbit camera for authoring. Reuses the post-FX pipelines so
@@ -1430,9 +1448,61 @@
         if (!state) return;
         for (const n of getAuthorableNodes()) applySnapshot(n, state[n.name]);
       }
+      // -------------------- Light handles --------------------
+      // Each non-ambient light gets a small pickable sphere ("bulb").
+      // Click to attach the regular position/rotation gizmos; each
+      // frame the light's position + direction sync from the handle.
+      // Hidden unless gizmo mode is on so the icons don't clutter the
+      // diorama during normal viewing.
+      const lightHandles = [];
+      function addLightHandle(light, name, color, initialPos) {
+        const handle = BJS.MeshBuilder.CreateSphere(name, { diameter: 0.05, segments: 12 }, scene);
+        const mat = new BJS.StandardMaterial(name + 'Mat', scene);
+        mat.emissiveColor = color;
+        mat.disableLighting = true;
+        handle.material = mat;
+        handle.renderingGroupId = 2;        // draw above scene
+        handle.isPickable = true;
+        if (initialPos) handle.position.copyFrom(initialPos);
+        else if (light.position) handle.position.copyFrom(light.position);
+        if (light.direction) handle.lookAt(handle.position.add(light.direction));
+        handle.metadata = { isLightHandle: true, light };
+        handle.setEnabled(false);
+        lightHandles.push({ handle, light });
+        return handle;
+      }
+      addLightHandle(sun, 'sunHandle',
+        new BJS.Color3(1.0, 0.85, 0.45),
+        sun.direction.scale(-1.5));
+      addLightHandle(rim, 'rimHandle',
+        new BJS.Color3(1.0, 0.7, 0.45),
+        rim.direction.scale(-1.0));
+      if (windowLight) {
+        addLightHandle(windowLight, 'windowLightHandle',
+          new BJS.Color3(1.0, 0.9, 0.6),
+          windowLight.position ? windowLight.position.clone() : null);
+      }
+      scene.onBeforeRenderObservable.add(() => {
+        for (const { handle, light } of lightHandles) {
+          if (!(light instanceof BJS.DirectionalLight) && light.position) {
+            light.position.copyFrom(handle.getAbsolutePosition());
+          }
+          if (light.direction) {
+            const fwd = handle.forward;
+            light.direction.set(fwd.x, fwd.y, fwd.z).normalize();
+          }
+        }
+      });
+      function setLightHandlesVisible(v) {
+        for (const { handle } of lightHandles) handle.setEnabled(v);
+      }
+
       // Apply once for nodes that exist synchronously; the bonsai
       // import callback re-applies after bonsaiRoot is attached.
       restoreSceneState();
+
+      document.getElementById('save-btn').addEventListener('click', saveSceneState);
+      document.getElementById('reset-btn').addEventListener('click', clearSceneState);
 
       window.addEventListener('keydown', (ev) => {
         if (ev.target instanceof HTMLInputElement) return;
@@ -1442,8 +1512,6 @@
         else if (k === 'i') toggleInspector();
         else if (k === 'g') toggleGizmos();
         else if (k === 'e') toggleEditCamera();
-        else if (k === 's') saveSceneState();
-        else if (k === 'r') clearSceneState();
       });
       if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
 
