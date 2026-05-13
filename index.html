@@ -857,12 +857,16 @@
       pipeline.bloomThreshold = 0.85;
       pipeline.bloomWeight = 0.7;
 
-      pipeline.depthOfFieldEnabled = true;
-      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Medium;
-      pipeline.depthOfField.focalLength = 85;        // mm, portrait lens
-      pipeline.depthOfField.fStop = 1.8;
-      pipeline.depthOfField.focusDistance = 550;     // mm → 0.55 m
-      pipeline.depthOfField.lensSize = 50;
+      // DoF is OFF by default — Gaussian splats don't write depth, so
+      // the splat tree gets treated as far-background by the DoF post
+      // process and blurs to oblivion while everything else stays sharp.
+      // Re-enable via the fx-dof slider (>0) if you swap back to a GLB.
+      pipeline.depthOfFieldEnabled = false;
+      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Low;
+      pipeline.depthOfField.focalLength = 85;
+      pipeline.depthOfField.fStop = 4.0;
+      pipeline.depthOfField.focusDistance = 700;
+      pipeline.depthOfField.lensSize = 35;
 
       pipeline.chromaticAberrationEnabled = true;
       pipeline.chromaticAberration.aberrationAmount = 10;
