@@ -272,8 +272,8 @@
 
       <h2>Cinematic</h2>
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
-      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.1" value="0.7"><code id="fx-dof-val">0.7</code></div>
-      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="1.5" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
+      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="12" step="0.1" value="0.7"><code id="fx-dof-val">0.7</code></div>
+      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.05" max="5.0" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="10"><code id="fx-chrom-val">10</code></div>
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.35"><code id="fx-vign-val">0.35</code></div>
@@ -2052,7 +2052,7 @@
       bindSlider('fx-bloom', 'fx-bloom-val', v => { pipeline.bloomWeight = v; });
       bindSlider('fx-dof', 'fx-dof-val', v => {
         pipeline.depthOfFieldEnabled = v > 0;
-        pipeline.depthOfField.fStop = Math.max(0.5, 6 - v);   // invert: high slider = strong blur = low fStop
+        pipeline.depthOfField.fStop = Math.max(0.3, 12 - v);  // invert: high slider = strong blur = low fStop
       });
       bindSlider('fx-focus', 'fx-focus-val', v => { pipeline.depthOfField.focusDistance = v * 1000; });
       bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
