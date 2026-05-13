@@ -75,6 +75,39 @@
       #author-bar .btn { margin: 0; padding: 6px 12px; font-size: 12px; }
       #author-bar .btn.active { background: #d76b3f; }
 
+      /* Screen-space current-weather card. Right third of the screen,
+         vertically centred. Fades out as the user leans toward the
+         screen — the 3D forecast carousel takes over up close. */
+      #now-card {
+        position: fixed; top: 50%; right: 4vw;
+        transform: translateY(-50%);
+        z-index: 15;
+        width: min(28vw, 360px);
+        padding: 26px 26px 28px;
+        color: #fff;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: linear-gradient(180deg,
+          rgba(255,255,255,0.22) 0%,
+          rgba(255,255,255,0.10) 50%,
+          rgba(255,255,255,0.16) 100%);
+        backdrop-filter: blur(26px) saturate(160%);
+        -webkit-backdrop-filter: blur(26px) saturate(160%);
+        border: 1px solid rgba(255,255,255,0.32);
+        border-radius: 22px;
+        box-shadow: 0 14px 40px rgba(0,0,0,0.35),
+                    inset 0 1px 0 rgba(255,255,255,0.28);
+        transition: opacity .35s ease;
+        pointer-events: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+      }
+      #now-card .now-loc  { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; margin-bottom: 4px; }
+      #now-card .now-day  { font-size: 22px; font-weight: 600; }
+      #now-card .now-date { font-size: 12px; opacity: .7; margin-top: 2px; margin-bottom: 14px; }
+      #now-card .now-temp { font-size: 64px; font-weight: 200; line-height: 1; margin-bottom: 6px; }
+      #now-card .now-cond { font-size: 16px; opacity: .92; margin-bottom: 14px; }
+      #now-card .now-hilo { display: flex; gap: 22px; font-size: 14px; opacity: .78; }
+      body.ui-hidden #now-card { /* stays visible — weather is always on */ }
+
 
       #hud-toggle {
         position: fixed; top: 12px; left: 12px; z-index: 50;
@@ -176,6 +209,15 @@
     <button id="hud-toggle" aria-label="Toggle UI" title="Show / hide UI (H)">
       <span></span><span></span><span></span>
     </button>
+
+    <div id="now-card" aria-live="polite">
+      <div class="now-loc">Snohomish · WA</div>
+      <div class="now-day">Today</div>
+      <div class="now-date">—</div>
+      <div class="now-temp">—</div>
+      <div class="now-cond">Loading…</div>
+      <div class="now-hilo"><span>H —</span><span>L —</span></div>
+    </div>
 
     <div id="author-bar">
       <button id="mode-move-btn"   class="btn secondary" title="Position gizmo">Move</button>
@@ -1779,11 +1821,13 @@
       document.getElementById('mode-scale-btn').addEventListener('click', () => setGizmoMode('scale'));
 
       // -------------------- Weather report --------------------
-      // 10-day forecast from Open-Meteo (no API key). Populates the 3D
-      // curved card strip around the diorama.
+      // Current conditions + 10-day forecast from Open-Meteo (no key).
+      // Current goes into the screen-space #now-card; daily 0..9 goes
+      // into the 3D curved carousel.
       (async function loadWeather() {
         const LAT = 47.91, LON = -122.10;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+          `&current=temperature_2m,weather_code` +
           `&daily=temperature_2m_max,temperature_2m_min,weather_code` +
           `&temperature_unit=fahrenheit&timezone=auto&forecast_days=${FORECAST_DAYS}`;
         const condFromCode = (c) => {
@@ -1799,10 +1843,18 @@
           if (c <= 86) return 'Snow Showers';
           return 'Thunderstorm';
         };
+        const nowCard = {
+          day:  document.querySelector('#now-card .now-day'),
+          date: document.querySelector('#now-card .now-date'),
+          temp: document.querySelector('#now-card .now-temp'),
+          cond: document.querySelector('#now-card .now-cond'),
+          hilo: document.querySelector('#now-card .now-hilo'),
+        };
         try {
           const res = await fetch(url);
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const d = await res.json();
+          // Daily strip
           for (let i = 0; i < FORECAST_DAYS && i < d.daily.time.length; i++) {
             const dt = new Date(d.daily.time[i] + 'T00:00');
             paintForecastCard(forecastCards[i], {
@@ -1813,14 +1865,44 @@
               lo: Math.round(d.daily.temperature_2m_min[i]),
             });
           }
-          console.info('[weather] 10-day forecast loaded for Snohomish');
+          // Current
+          const today = new Date(d.daily.time[0] + 'T00:00');
+          nowCard.day.textContent  = today.toLocaleDateString('en-US', { weekday: 'long' });
+          nowCard.date.textContent = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+          nowCard.temp.textContent = Math.round(d.current.temperature_2m) + '°';
+          nowCard.cond.textContent = condFromCode(d.current.weather_code);
+          nowCard.hilo.innerHTML =
+            `<span>H ${Math.round(d.daily.temperature_2m_max[0])}°</span>` +
+            `<span>L ${Math.round(d.daily.temperature_2m_min[0])}°</span>`;
+          console.info('[weather] current + 10-day forecast loaded for Snohomish');
         } catch (e) {
           console.warn('[weather] fetch failed —', e.message);
           forecastCards.forEach((slot) => paintForecastCard(slot, {
             dayLabel: '—', dateLabel: '—', cond: 'Offline', hi: '—', lo: '—',
           }));
+          if (nowCard.cond) nowCard.cond.textContent = 'Offline';
         }
       })();
+
+      // Proximity-driven crossfade between the screen-space #now-card
+      // and the 3D forecast carousel. Reads the HCP camera's Z (which
+      // is driven by face tracking when active) and maps it to a
+      // closeness 0..1 over the FAR_Z..CLOSE_Z range.
+      const PROX_FAR_Z   = 0.62;   // user at the default seated distance
+      const PROX_CLOSE_Z = 0.42;   // ~20 cm closer to the screen
+      const nowCardEl = document.getElementById('now-card');
+      // Start with carousel hidden, now-card visible.
+      forecastCards.forEach(({ card }) => { card.visibility = 0; });
+      let _proxSmooth = 0;
+      scene.onBeforeRenderObservable.add(() => {
+        const z = camera.position.z;
+        const raw = (PROX_FAR_Z - z) / (PROX_FAR_Z - PROX_CLOSE_Z);
+        const target = Math.max(0, Math.min(1, raw));
+        _proxSmooth += (target - _proxSmooth) * 0.10;  // ease ~10 frames
+        const closeness = _proxSmooth;
+        nowCardEl.style.opacity = (1 - closeness).toFixed(3);
+        for (const { card } of forecastCards) card.visibility = closeness;
+      });
 
       window.addEventListener('keydown', (ev) => {
         if (ev.target instanceof HTMLInputElement) return;
