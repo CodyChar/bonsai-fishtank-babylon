@@ -603,6 +603,7 @@
           bonsaiRoot.position.copyFrom(centre.scale(-s));
         }
         bonsaiRoot.parent = treeGroup;
+        bonsaiRoot.setEnabled(false);  // hidden by default; splat is the visible tree
         console.info('[bonsai] ready, bbox', size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
         // Re-apply saved state so user tweaks override the auto-fit.
         if (typeof restoreSceneState === 'function') restoreSceneState();
@@ -726,6 +727,22 @@
       windowLight = buildWindowLight();
       // Alias retained for the VLS ctor signature below.
       const skylight = windowPane;
+
+      // -------------------- Default-off dressing --------------------
+      // Hide lights + pedestal/moss/dish/rocks by default so the loaded
+      // splat is the visible focal point. The async bonsai GLB is also
+      // hidden once it finishes loading. Re-enable any of these in the
+      // Inspector if you want them back.
+      sun.setEnabled(false);
+      hemi.setEnabled(false);
+      rim.setEnabled(false);
+      if (windowLight) windowLight.setEnabled(false);
+      pedestal.setEnabled(false);
+      moss.setEnabled(false);
+      dish.setEnabled(false);
+      for (const m of scene.meshes) {
+        if (/^rock\d+$/.test(m.name)) m.setEnabled(false);
+      }
 
       // -------------------- Cinematic post-processing --------------------
       // DefaultRenderingPipeline bundles Bloom + DoF + Chromatic Aberration
