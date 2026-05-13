@@ -393,9 +393,9 @@
       rim.intensity = 0.8;
 
       // Shadow generator for the sun only.
-      const shadowGen = new BJS.ShadowGenerator(2048, sun);
+      const shadowGen = new BJS.ShadowGenerator(1024, sun);
       shadowGen.useBlurExponentialShadowMap = true;
-      shadowGen.blurKernel = 32;
+      shadowGen.blurKernel = 16;
       shadowGen.darkness = 0.25;
       shadowGen.bias = 0.0005;
 
@@ -737,6 +737,7 @@
       hemi.setEnabled(false);
       rim.setEnabled(false);
       if (windowLight) windowLight.setEnabled(false);
+      if (windowPane) windowPane.setEnabled(false);
       pedestal.setEnabled(false);
       moss.setEnabled(false);
       dish.setEnabled(false);
@@ -748,7 +749,7 @@
       // DefaultRenderingPipeline bundles Bloom + DoF + Chromatic Aberration
       // + Grain + Vignette + Tonemap + FXAA in the correct order.
       const pipeline = new BJS.DefaultRenderingPipeline('drp', true, scene, [camera]);
-      pipeline.samples = 4;
+      pipeline.samples = 1;        // FXAA handles AA; MSAA on top is redundant
       pipeline.fxaaEnabled = true;
 
       pipeline.bloomEnabled = true;
@@ -797,8 +798,8 @@
             }, [camera]);
             ssao.radius = 0.08;
             ssao.totalStrength = 1.5;
-            ssao.expensiveBlur = true;
-            ssao.samples = 16;
+            ssao.expensiveBlur = false;  // cheaper blur — fine at this scale
+            ssao.samples = 8;            // halved from 16
             ssao.maxZ = 2.0;
             console.info('[fx] SSAO2 on');
           } else {
@@ -809,30 +810,39 @@
           ssao = null;
         }
 
-        try {
-          godRays = new BJS.VolumetricLightScatteringPostProcess(
-            'godRays', 1.0, camera, skylight, 80, BJS.Texture.BILINEAR_SAMPLINGMODE, engine, false, scene
-          );
-          godRays.exposure = 0.18;
-          godRays.decay = 0.96;
-          godRays.weight = 0.55;
-          godRays.density = 0.9;
-          console.info('[fx] Volumetric light scattering on');
-        } catch (e) {
-          console.warn('[fx] Volumetric light scattering failed —', e.message);
-          godRays = null;
+        // Volumetric light scattering and SSR were the two most expensive
+        // post-processes; disabled for performance. Re-enable by setting
+        // ENABLE_GODRAYS / ENABLE_SSR to true.
+        const ENABLE_GODRAYS = false;
+        const ENABLE_SSR = false;
+        if (ENABLE_GODRAYS) {
+          try {
+            godRays = new BJS.VolumetricLightScatteringPostProcess(
+              'godRays', 1.0, camera, skylight, 80, BJS.Texture.BILINEAR_SAMPLINGMODE, engine, false, scene
+            );
+            godRays.exposure = 0.18;
+            godRays.decay = 0.96;
+            godRays.weight = 0.55;
+            godRays.density = 0.9;
+            console.info('[fx] Volumetric light scattering on');
+          } catch (e) {
+            console.warn('[fx] Volumetric light scattering failed —', e.message);
+            godRays = null;
+          }
         }
 
-        try {
-          const ssr = new BJS.SSRRenderingPipeline('ssr', scene, [camera], false, BJS.Constants.TEXTURETYPE_HALF_FLOAT);
-          ssr.strength = 0.5;
-          ssr.reflectivityThreshold = 0.04;
-          ssr.reflectionSpecularFalloffExponent = 3;
-          ssr.maxDistance = 1.0;
-          ssr.maxSteps = 64;
-          console.info('[fx] SSR on');
-        } catch (e) {
-          console.info('[fx] SSR unavailable —', e.message);
+        if (ENABLE_SSR) {
+          try {
+            const ssr = new BJS.SSRRenderingPipeline('ssr', scene, [camera], false, BJS.Constants.TEXTURETYPE_HALF_FLOAT);
+            ssr.strength = 0.5;
+            ssr.reflectivityThreshold = 0.04;
+            ssr.reflectionSpecularFalloffExponent = 3;
+            ssr.maxDistance = 1.0;
+            ssr.maxSteps = 64;
+            console.info('[fx] SSR on');
+          } catch (e) {
+            console.info('[fx] SSR unavailable —', e.message);
+          }
         }
       } else {
         console.warn('[fx] heavy post-processes disabled by DIAGNOSTIC flag');
