@@ -97,9 +97,13 @@
         box-shadow: 0 14px 40px rgba(0,0,0,0.35),
                     inset 0 1px 0 rgba(255,255,255,0.28);
         transition: opacity .35s ease;
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: grab;
+        user-select: none;
+        touch-action: none;
         text-shadow: 0 1px 2px rgba(0,0,0,0.35);
       }
+      #now-card.dragging { cursor: grabbing; transition: none; }
       #now-card .now-loc  { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; margin-bottom: 4px; }
       #now-card .now-day  { font-size: 22px; font-weight: 600; }
       #now-card .now-date { font-size: 12px; opacity: .7; margin-top: 2px; margin-bottom: 14px; }
@@ -259,7 +263,7 @@
       <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21.5"><code id="box-d-val">21.5</code></div>
 
       <h2>Weather UI</h2>
-      <div class="slider-row"><span>Swap dist (cm)</span><input id="proxy-swap" type="range" min="20" max="80" step="1" value="50"><code id="proxy-swap-val">50</code></div>
+      <div class="slider-row"><span>Swap dist (cm)</span><input id="proxy-swap" type="range" min="40" max="100" step="1" value="70"><code id="proxy-swap-val">70</code></div>
 
       <h2>Sun / atmosphere</h2>
       <div class="slider-row"><span>Sun altitude</span><input id="sun-incl" type="range" min="0" max="1" step="0.01" value="0.5"><code id="sun-incl-val">0.50</code></div>
@@ -1894,12 +1898,59 @@
       // until z rises back above (threshold + hysteresis), preventing
       // flutter right at the boundary. The animation itself eases each
       // frame toward 0 (far) or 1 (close).
-      let proxThresholdZ = 0.50;          // metres; bound to the HUD slider
+      let proxThresholdZ = 0.70;          // metres; bound to the HUD slider
       const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
       const PROX_FADE_RATE  = 0.12;       // ease per frame
       let proxState = 'far';
       let proxAnim  = 0;
       const nowCardEl = document.getElementById('now-card');
+      // Make the now-card draggable — drop anywhere; position persists.
+      (function makeNowCardDraggable(el) {
+        const NOW_POS_KEY = 'bonsaiNowCardPos';
+        try {
+          const raw = localStorage.getItem(NOW_POS_KEY);
+          if (raw) {
+            const pos = JSON.parse(raw);
+            el.style.left = pos.left;
+            el.style.top  = pos.top;
+            el.style.right = 'auto';
+            el.style.transform = 'none';
+          }
+        } catch {}
+        let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+        el.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
+          const r = el.getBoundingClientRect();
+          el.style.left = r.left + 'px';
+          el.style.top  = r.top  + 'px';
+          el.style.right = 'auto';
+          el.style.transform = 'none';
+          startX = e.clientX; startY = e.clientY;
+          startLeft = r.left; startTop = r.top;
+          dragging = true;
+          el.classList.add('dragging');
+          el.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        });
+        el.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          el.style.left = (startLeft + e.clientX - startX) + 'px';
+          el.style.top  = (startTop  + e.clientY - startY) + 'px';
+        });
+        const endDrag = (e) => {
+          if (!dragging) return;
+          dragging = false;
+          el.classList.remove('dragging');
+          try { el.releasePointerCapture(e.pointerId); } catch {}
+          try {
+            localStorage.setItem(NOW_POS_KEY, JSON.stringify({
+              left: el.style.left, top: el.style.top,
+            }));
+          } catch {}
+        };
+        el.addEventListener('pointerup', endDrag);
+        el.addEventListener('pointercancel', endDrag);
+      })(nowCardEl);
       // Start with carousel hidden, now-card visible.
       forecastCards.forEach(({ card }) => { card.visibility = 0; });
       scene.onBeforeRenderObservable.add(() => {
