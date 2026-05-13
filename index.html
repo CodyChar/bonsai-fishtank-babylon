@@ -75,24 +75,6 @@
       #author-bar .btn { margin: 0; padding: 6px 12px; font-size: 12px; }
       #author-bar .btn.active { background: #d76b3f; }
 
-      #weather {
-        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        z-index: 15; min-width: 200px;
-        padding: 14px 22px;
-        background: rgba(20, 26, 38, 0.42);
-        backdrop-filter: blur(22px) saturate(150%);
-        -webkit-backdrop-filter: blur(22px) saturate(150%);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 18px;
-        box-shadow: 0 6px 28px rgba(0,0,0,0.35);
-        color: #e8eef5; font: 13px system-ui; text-align: center;
-        transition: opacity .2s;
-      }
-      #weather .loc { font-size: 11px; opacity: 0.65; letter-spacing: 0.10em; text-transform: uppercase; margin-bottom: 4px; }
-      #weather .temp { font-size: 40px; font-weight: 200; line-height: 1; margin: 2px 0 4px; }
-      #weather .cond { font-size: 13px; opacity: 0.85; margin-bottom: 8px; }
-      #weather .hilo { display: flex; justify-content: center; gap: 18px; font-size: 12px; opacity: 0.65; }
-      body.ui-hidden #weather { opacity: 0.25; }
 
       #hud-toggle {
         position: fixed; top: 12px; left: 12px; z-index: 50;
@@ -194,13 +176,6 @@
     <button id="hud-toggle" aria-label="Toggle UI" title="Show / hide UI (H)">
       <span></span><span></span><span></span>
     </button>
-
-    <div id="weather" aria-live="polite">
-      <div class="loc">Loading…</div>
-      <div class="temp">—</div>
-      <div class="cond">—</div>
-      <div class="hilo"><span>H —</span><span>L —</span></div>
-    </div>
 
     <div id="author-bar">
       <button id="mode-move-btn"   class="btn secondary" title="Position gizmo">Move</button>
@@ -488,6 +463,9 @@
       letterboxMat.diffuseColor = new BJS.Color3(0, 0, 0);
       letterboxMat.disableLighting = true;
       letterboxMat.backFaceCulling = false;
+      // Don't write depth so SSAO / DoF don't infer occlusion from the
+      // letterbox planes — they're a 2D screen mask, not 3D geometry.
+      letterboxMat.disableDepthWrite = true;
       let letterboxTop = null, letterboxBottom = null;
       function rebuildLetterbox() {
         [letterboxTop, letterboxBottom].forEach(m => m?.dispose());
@@ -669,6 +647,87 @@
         console.info('[splat] ready, bbox', size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
         if (typeof restoreSceneState === 'function') restoreSceneState();
       }).catch(err => console.warn('[splat] load failed —', err.message || err));
+
+      // -------------------- 10-day forecast (curved 3D strip) --------------------
+      // 10 card meshes arranged on a 180° arc behind the diorama. The arc's
+      // diameter matches the diorama box width. Each card has a dynamic
+      // canvas texture; the weather fetch populates them. Back wall is
+      // hidden so the cards aren't occluded.
+      const FORECAST_DAYS = 10;
+      const FORECAST_ARC = Math.PI;
+      const FORECAST_RADIUS = screenGeom.widthMeters * 0.5;
+      const FORECAST_CENTRE_Z = -boxDepth * 0.55;
+      const forecastCards = [];
+      for (let i = 0; i < FORECAST_DAYS; i++) {
+        const t = i / (FORECAST_DAYS - 1);
+        const angle = -FORECAST_ARC * 0.5 + FORECAST_ARC * t;
+        const card = BJS.MeshBuilder.CreatePlane('forecastCard' + i,
+          { width: 0.08, height: 0.12 }, scene);
+        card.position.set(
+          Math.sin(angle) * FORECAST_RADIUS,
+          0.0,
+          FORECAST_CENTRE_Z - Math.cos(angle) * FORECAST_RADIUS,
+        );
+        card.rotation.y = angle + Math.PI;  // face outward toward viewer
+        card.isPickable = false;
+        const tex = new BJS.DynamicTexture('forecastTex' + i,
+          { width: 256, height: 384 }, scene, false);
+        tex.hasAlpha = true;
+        const mat = new BJS.StandardMaterial('forecastMat' + i, scene);
+        mat.diffuseTexture = tex;
+        mat.emissiveTexture = tex;
+        mat.useAlphaFromDiffuseTexture = true;
+        mat.disableLighting = true;
+        mat.backFaceCulling = true;
+        card.material = mat;
+        forecastCards.push({ card, tex });
+      }
+      function paintForecastCard(slot, day) {
+        const tex = slot.tex;
+        const ctx = tex.getContext();
+        const W = 256, H = 384, R = 22;
+        ctx.clearRect(0, 0, W, H);
+        // Rounded translucent dark panel.
+        ctx.beginPath();
+        ctx.moveTo(R, 0);
+        ctx.lineTo(W - R, 0); ctx.quadraticCurveTo(W, 0, W, R);
+        ctx.lineTo(W, H - R); ctx.quadraticCurveTo(W, H, W - R, H);
+        ctx.lineTo(R, H);     ctx.quadraticCurveTo(0, H, 0, H - R);
+        ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(20, 26, 38, 0.62)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Text
+        ctx.fillStyle = '#e8eef5';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 36px system-ui';
+        ctx.fillText(day.dayLabel, W / 2, 56);
+        ctx.font = '22px system-ui';
+        ctx.fillStyle = 'rgba(232,238,245,0.6)';
+        ctx.fillText(day.dateLabel, W / 2, 86);
+        ctx.font = '24px system-ui';
+        ctx.fillStyle = '#e8eef5';
+        ctx.fillText(day.cond, W / 2, 200);
+        ctx.font = 'bold 38px system-ui';
+        ctx.fillStyle = '#e8eef5';
+        ctx.fillText(day.hi + '°', W / 2 - 38, 320);
+        ctx.font = '32px system-ui';
+        ctx.fillStyle = 'rgba(232,238,245,0.55)';
+        ctx.fillText(day.lo + '°', W / 2 + 42, 320);
+        tex.update();
+      }
+      // Initial placeholder so cards aren't blank before fetch resolves.
+      forecastCards.forEach((slot, i) =>
+        paintForecastCard(slot, { dayLabel: '—', dateLabel: '—', cond: 'Loading…', hi: '—', lo: '—' })
+      );
+      // Hide the back wall so cards aren't occluded.
+      {
+        const bw = scene.getNodeByName('wallBack');
+        if (bw) bw.setEnabled(false);
+      }
 
       // -------------------- Skylight source (volumetric emitter) --------------------
       // A tiny emissive disc at the upper-right of the ceiling that
@@ -1693,13 +1752,13 @@
       document.getElementById('mode-scale-btn').addEventListener('click', () => setGizmoMode('scale'));
 
       // -------------------- Weather report --------------------
-      // Live forecast for Snohomish, WA from Open-Meteo (no API key).
+      // 10-day forecast from Open-Meteo (no API key). Populates the 3D
+      // curved card strip around the diorama.
       (async function loadWeather() {
         const LAT = 47.91, LON = -122.10;
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
-          `&current=temperature_2m,weather_code` +
-          `&daily=temperature_2m_max,temperature_2m_min` +
-          `&temperature_unit=fahrenheit&timezone=auto`;
+          `&daily=temperature_2m_max,temperature_2m_min,weather_code` +
+          `&temperature_unit=fahrenheit&timezone=auto&forecast_days=${FORECAST_DAYS}`;
         const condFromCode = (c) => {
           if (c === 0) return 'Clear';
           if (c === 1) return 'Mainly Clear';
@@ -1713,26 +1772,26 @@
           if (c <= 86) return 'Snow Showers';
           return 'Thunderstorm';
         };
-        const loc  = document.querySelector('#weather .loc');
-        const temp = document.querySelector('#weather .temp');
-        const cond = document.querySelector('#weather .cond');
-        const hilo = document.querySelector('#weather .hilo');
         try {
           const res = await fetch(url);
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const d = await res.json();
-          loc.textContent  = 'Snohomish · WA';
-          temp.textContent = Math.round(d.current.temperature_2m) + '°';
-          cond.textContent = condFromCode(d.current.weather_code);
-          hilo.innerHTML =
-            `<span>H ${Math.round(d.daily.temperature_2m_max[0])}°</span>` +
-            `<span>L ${Math.round(d.daily.temperature_2m_min[0])}°</span>`;
+          for (let i = 0; i < FORECAST_DAYS && i < d.daily.time.length; i++) {
+            const dt = new Date(d.daily.time[i] + 'T00:00');
+            paintForecastCard(forecastCards[i], {
+              dayLabel: dt.toLocaleDateString('en-US', { weekday: 'short' }),
+              dateLabel: (dt.getMonth() + 1) + '/' + dt.getDate(),
+              cond: condFromCode(d.daily.weather_code[i]),
+              hi: Math.round(d.daily.temperature_2m_max[i]),
+              lo: Math.round(d.daily.temperature_2m_min[i]),
+            });
+          }
+          console.info('[weather] 10-day forecast loaded for Snohomish');
         } catch (e) {
           console.warn('[weather] fetch failed —', e.message);
-          loc.textContent  = 'Snohomish · WA';
-          temp.textContent = '—';
-          cond.textContent = 'Weather unavailable';
-          hilo.innerHTML = '<span>H —</span><span>L —</span>';
+          forecastCards.forEach((slot) => paintForecastCard(slot, {
+            dayLabel: '—', dateLabel: '—', cond: 'Offline', hi: '—', lo: '—',
+          }));
         }
       })();
 
