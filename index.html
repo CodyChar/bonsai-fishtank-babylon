@@ -663,7 +663,7 @@
       const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.5;
       const FORECAST_RADIUS_Z = boxDepth * 0.42;
       const FORECAST_CENTRE_Z = -boxDepth * 0.5;
-      const FORECAST_CARD_H = screenGeom.heightMeters * 0.25;
+      const FORECAST_CARD_H = screenGeom.heightMeters * 0.175;   // 30% shorter than before
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
       const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.27;  // bottom-third centre
       const forecastCards = [];
@@ -701,36 +701,60 @@
         const ctx = tex.getContext();
         const W = 256, H = 384, R = 22;
         ctx.clearRect(0, 0, W, H);
-        // Rounded translucent dark panel.
-        ctx.beginPath();
-        ctx.moveTo(R, 0);
-        ctx.lineTo(W - R, 0); ctx.quadraticCurveTo(W, 0, W, R);
-        ctx.lineTo(W, H - R); ctx.quadraticCurveTo(W, H, W - R, H);
-        ctx.lineTo(R, H);     ctx.quadraticCurveTo(0, H, 0, H - R);
-        ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(20, 26, 38, 0.92)';   // bumped opacity so cards can't disappear into the scene
+        // Rounded-rect path used for both fill and clip.
+        function roundRectPath() {
+          ctx.beginPath();
+          ctx.moveTo(R, 0);
+          ctx.lineTo(W - R, 0); ctx.quadraticCurveTo(W, 0, W, R);
+          ctx.lineTo(W, H - R); ctx.quadraticCurveTo(W, H, W - R, H);
+          ctx.lineTo(R, H);     ctx.quadraticCurveTo(0, H, 0, H - R);
+          ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
+          ctx.closePath();
+        }
+        // Frosted-glass body: translucent white with a vertical gradient
+        // so light catches the top edge.
+        roundRectPath();
+        const body = ctx.createLinearGradient(0, 0, 0, H);
+        body.addColorStop(0,   'rgba(255, 255, 255, 0.26)');
+        body.addColorStop(0.5, 'rgba(255, 255, 255, 0.14)');
+        body.addColorStop(1,   'rgba(255, 255, 255, 0.18)');
+        ctx.fillStyle = body;
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+        // Inner top highlight (clipped to rounded shape).
+        ctx.save();
+        ctx.clip();
+        const sheen = ctx.createLinearGradient(0, 0, 0, 60);
+        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.30)');
+        sheen.addColorStop(1, 'rgba(255, 255, 255, 0.00)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(0, 0, W, 60);
+        ctx.restore();
+        // Bright edge outline.
+        roundRectPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.38)';
         ctx.lineWidth = 2;
         ctx.stroke();
-        // Text
-        ctx.fillStyle = '#e8eef5';
+        // Text — solid white with subtle shadow for legibility against
+        // any background showing through the glass.
         ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 36px system-ui';
         ctx.fillText(day.dayLabel, W / 2, 56);
         ctx.font = '22px system-ui';
-        ctx.fillStyle = 'rgba(232,238,245,0.6)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
         ctx.fillText(day.dateLabel, W / 2, 86);
         ctx.font = '24px system-ui';
-        ctx.fillStyle = '#e8eef5';
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(day.cond, W / 2, 200);
         ctx.font = 'bold 38px system-ui';
-        ctx.fillStyle = '#e8eef5';
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(day.hi + '°', W / 2 - 38, 320);
         ctx.font = '32px system-ui';
-        ctx.fillStyle = 'rgba(232,238,245,0.55)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
         ctx.fillText(day.lo + '°', W / 2 + 42, 320);
+        ctx.shadowBlur = 0;
         tex.update();
       }
       // Initial placeholder so cards aren't blank before fetch resolves.
