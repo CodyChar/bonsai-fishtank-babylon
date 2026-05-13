@@ -1611,6 +1611,17 @@
           new BJS.Color3(1.0, 0.9, 0.6),
           windowLight.position ? windowLight.position.clone() : null);
       }
+      // Continuously lock DoF focus distance to the scene centre
+      // (treeGroup's world position) for whichever camera is active.
+      // Babylon's DoF wants focusDistance in millimetres.
+      scene.onBeforeRenderObservable.add(() => {
+        if (!pipeline || !pipeline.depthOfField) return;
+        const cam = scene.activeCamera;
+        if (!cam) return;
+        const distM = BJS.Vector3.Distance(cam.globalPosition || cam.position, treeGroup.getAbsolutePosition());
+        pipeline.depthOfField.focusDistance = distM * 1000;
+      });
+
       // Per-frame sync. Mutating light.direction in place doesn't always
       // invalidate Babylon's internal caches (ShadowLight._cache.direction,
       // material light-dirty state, etc.), so we REASSIGN to a fresh
