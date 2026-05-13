@@ -712,7 +712,7 @@
       // and cause it to consume the entire frame after DoF).
       const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.5;
       const FORECAST_RADIUS_Z = boxDepth * 0.42;
-      const FORECAST_CENTRE_Z = -boxDepth * 0.5;
+      const FORECAST_CENTRE_Z = -boxDepth * 0.5 - 0.10;   // pushed back ~4 inches
       const FORECAST_CARD_H = screenGeom.heightMeters * 0.175;   // 30% shorter than before
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
       const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.27;  // bottom-third centre
