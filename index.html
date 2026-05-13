@@ -258,6 +258,9 @@
       <div class="slider-row"><span>Tree scale</span><input id="tree-s" type="range" min="0.1" max="5" step="0.05" value="1.40"><code id="tree-s-val">1.40</code></div>
       <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21.5"><code id="box-d-val">21.5</code></div>
 
+      <h2>Weather UI</h2>
+      <div class="slider-row"><span>Swap dist (cm)</span><input id="proxy-swap" type="range" min="20" max="80" step="1" value="50"><code id="proxy-swap-val">50</code></div>
+
       <h2>Sun / atmosphere</h2>
       <div class="slider-row"><span>Sun altitude</span><input id="sun-incl" type="range" min="0" max="1" step="0.01" value="0.5"><code id="sun-incl-val">0.50</code></div>
       <div class="slider-row"><span>Sun azimuth</span><input id="sun-azim" type="range" min="0" max="1" step="0.01" value="0.75"><code id="sun-azim-val">0.75</code></div>
@@ -1884,24 +1887,29 @@
         }
       })();
 
-      // Proximity-driven crossfade between the screen-space #now-card
-      // and the 3D forecast carousel. Reads the HCP camera's Z (which
-      // is driven by face tracking when active) and maps it to a
-      // closeness 0..1 over the FAR_Z..CLOSE_Z range.
-      const PROX_FAR_Z   = 0.62;   // user at the default seated distance
-      const PROX_CLOSE_Z = 0.42;   // ~20 cm closer to the screen
+      // Proximity-triggered swap between the screen-space #now-card and
+      // the 3D forecast carousel. Treated as a discrete event with
+      // hysteresis: when the HCP camera's Z crosses below the threshold
+      // we enter 'close' mode and the swap animates in; we stay there
+      // until z rises back above (threshold + hysteresis), preventing
+      // flutter right at the boundary. The animation itself eases each
+      // frame toward 0 (far) or 1 (close).
+      let proxThresholdZ = 0.50;          // metres; bound to the HUD slider
+      const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
+      const PROX_FADE_RATE  = 0.12;       // ease per frame
+      let proxState = 'far';
+      let proxAnim  = 0;
       const nowCardEl = document.getElementById('now-card');
       // Start with carousel hidden, now-card visible.
       forecastCards.forEach(({ card }) => { card.visibility = 0; });
-      let _proxSmooth = 0;
       scene.onBeforeRenderObservable.add(() => {
         const z = camera.position.z;
-        const raw = (PROX_FAR_Z - z) / (PROX_FAR_Z - PROX_CLOSE_Z);
-        const target = Math.max(0, Math.min(1, raw));
-        _proxSmooth += (target - _proxSmooth) * 0.10;  // ease ~10 frames
-        const closeness = _proxSmooth;
-        nowCardEl.style.opacity = (1 - closeness).toFixed(3);
-        for (const { card } of forecastCards) card.visibility = closeness;
+        if (proxState === 'far'   && z < proxThresholdZ) proxState = 'close';
+        else if (proxState === 'close' && z > proxThresholdZ + PROX_HYSTERESIS) proxState = 'far';
+        const target = proxState === 'close' ? 1 : 0;
+        proxAnim += (target - proxAnim) * PROX_FADE_RATE;
+        nowCardEl.style.opacity = (1 - proxAnim).toFixed(3);
+        for (const { card } of forecastCards) card.visibility = proxAnim;
       });
 
       window.addEventListener('keydown', (ev) => {
@@ -1962,6 +1970,10 @@
         boxDepth = v / 100;
         document.getElementById('box-d-val').textContent = inp.value;
         rebuildShoebox(); rebuildWindow();
+      });
+      bindSlider('proxy-swap', 'proxy-swap-val', (v, inp) => {
+        proxThresholdZ = v / 100;  // cm -> m
+        document.getElementById('proxy-swap-val').textContent = inp.value;
       });
 
       bindSlider('sun-incl', 'sun-incl-val', v => updateSun());
