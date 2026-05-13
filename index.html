@@ -1306,6 +1306,41 @@
         toast(gizmoEnabled ? 'Gizmos on — click a mesh' : 'Gizmos off');
       }
 
+      // Free-orbit camera for authoring. Reuses the post-FX pipelines so
+      // the scene looks consistent (minus head-coupled god rays + SSR).
+      let editCam = null;
+      let editMode = false;
+      function ensureEditCamera() {
+        if (editCam) return editCam;
+        editCam = new BJS.ArcRotateCamera(
+          'editCam',
+          -Math.PI / 2, Math.PI / 2.2, 1.2,
+          new BJS.Vector3(0, -0.05, -0.2), scene,
+        );
+        editCam.minZ = 0.01;
+        editCam.maxZ = 20;
+        editCam.wheelPrecision = 80;
+        editCam.panningSensibility = 1200;
+        editCam.lowerRadiusLimit = 0.05;
+        editCam.upperRadiusLimit = 8;
+        try { pipeline && pipeline.addCamera && pipeline.addCamera(editCam); } catch (e) { console.warn(e); }
+        try { ssao && ssao.addCamera && ssao.addCamera(editCam); } catch (e) { console.warn(e); }
+        return editCam;
+      }
+      function toggleEditCamera() {
+        ensureEditCamera();
+        editMode = !editMode;
+        if (editMode) {
+          scene.activeCamera = editCam;
+          editCam.attachControl(canvas, true);
+          toast('Edit camera — drag to orbit, right-drag pan, wheel zoom');
+        } else {
+          editCam.detachControl(canvas);
+          scene.activeCamera = camera;
+          toast('Head-coupled camera');
+        }
+      }
+
       window.addEventListener('keydown', (ev) => {
         if (ev.target instanceof HTMLInputElement) return;
         if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
@@ -1313,6 +1348,7 @@
         if (k === 'h') setUIHidden(!document.body.classList.contains('ui-hidden'));
         else if (k === 'i') toggleInspector();
         else if (k === 'g') toggleGizmos();
+        else if (k === 'e') toggleEditCamera();
       });
       if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
 
