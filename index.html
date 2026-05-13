@@ -263,7 +263,8 @@
       <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21.5"><code id="box-d-val">21.5</code></div>
 
       <h2>Weather UI</h2>
-      <div class="slider-row"><span>Swap dist (cm)</span><input id="proxy-swap" type="range" min="40" max="100" step="1" value="70"><code id="proxy-swap-val">70</code></div>
+      <div class="slider-row"><span>Face swap (cm)</span><input id="proxy-swap-face" type="range" min="40" max="100" step="1" value="70"><code id="proxy-swap-face-val">70</code></div>
+      <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
 
       <h2>Sun / atmosphere</h2>
       <div class="slider-row"><span>Sun altitude</span><input id="sun-incl" type="range" min="0" max="1" step="0.01" value="0.5"><code id="sun-incl-val">0.50</code></div>
@@ -1898,7 +1899,8 @@
       // until z rises back above (threshold + hysteresis), preventing
       // flutter right at the boundary. The animation itself eases each
       // frame toward 0 (far) or 1 (close).
-      let proxThresholdZ = 0.70;          // metres; bound to the HUD slider
+      let proxThresholdZFace  = 0.70;     // metres; HUD-bound
+      let proxThresholdZPhone = 0.40;     // metres; HUD-bound
       const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
       const PROX_FADE_RATE  = 0.12;       // ease per frame
       let proxState = 'far';
@@ -1955,8 +1957,11 @@
       forecastCards.forEach(({ card }) => { card.visibility = 0; });
       scene.onBeforeRenderObservable.add(() => {
         const z = camera.position.z;
-        if (proxState === 'far'   && z < proxThresholdZ) proxState = 'close';
-        else if (proxState === 'close' && z > proxThresholdZ + PROX_HYSTERESIS) proxState = 'far';
+        const thresh = (typeof trackingMode !== 'undefined' && trackingMode === 'phone')
+          ? proxThresholdZPhone
+          : proxThresholdZFace;
+        if (proxState === 'far'   && z < thresh) proxState = 'close';
+        else if (proxState === 'close' && z > thresh + PROX_HYSTERESIS) proxState = 'far';
         const target = proxState === 'close' ? 1 : 0;
         proxAnim += (target - proxAnim) * PROX_FADE_RATE;
         nowCardEl.style.opacity = (1 - proxAnim).toFixed(3);
@@ -2022,9 +2027,13 @@
         document.getElementById('box-d-val').textContent = inp.value;
         rebuildShoebox(); rebuildWindow();
       });
-      bindSlider('proxy-swap', 'proxy-swap-val', (v, inp) => {
-        proxThresholdZ = v / 100;  // cm -> m
-        document.getElementById('proxy-swap-val').textContent = inp.value;
+      bindSlider('proxy-swap-face', 'proxy-swap-face-val', (v, inp) => {
+        proxThresholdZFace = v / 100;
+        document.getElementById('proxy-swap-face-val').textContent = inp.value;
+      });
+      bindSlider('proxy-swap-phone', 'proxy-swap-phone-val', (v, inp) => {
+        proxThresholdZPhone = v / 100;
+        document.getElementById('proxy-swap-phone-val').textContent = inp.value;
       });
 
       bindSlider('sun-incl', 'sun-incl-val', v => updateSun());
