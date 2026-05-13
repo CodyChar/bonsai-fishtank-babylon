@@ -1449,16 +1449,22 @@
         try { ssao && ssao.addCamera && ssao.addCamera(editCam); } catch (e) { console.warn(e); }
         return editCam;
       }
+      function setLetterboxVisible(v) {
+        if (letterboxTop) letterboxTop.setEnabled(v);
+        if (letterboxBottom) letterboxBottom.setEnabled(v);
+      }
       function toggleEditCamera() {
         ensureEditCamera();
         editMode = !editMode;
         if (editMode) {
           scene.activeCamera = editCam;
           editCam.attachControl(canvas, true);
+          setLetterboxVisible(false);
           toast('Edit camera — drag to orbit the tree, wheel to zoom');
         } else {
           editCam.detachControl(canvas);
           scene.activeCamera = camera;
+          setLetterboxVisible(true);
           toast('Head-coupled camera');
         }
       }
