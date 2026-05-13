@@ -28,7 +28,7 @@
         border-radius: 12px;
         font-size: 13px; line-height: 1.5;
         min-width: 240px;
-        max-height: calc(100vh - 120px);
+        max-height: calc(100vh - 180px);  /* leaves room for author-bar */
         overflow-y: auto;
       }
       #hud h1 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
@@ -94,7 +94,7 @@
         background: #e8eef5; border-radius: 1px;
       }
       body.ui-hidden #hud, body.ui-hidden #preview, body.ui-hidden #build-stamp,
-      body.ui-hidden #cal-finger-marker { display: none !important; }
+      body.ui-hidden #cal-finger-marker, body.ui-hidden #author-bar { display: none !important; }
       body.ui-hidden #hud-toggle { opacity: 0.25; }
       body.ui-hidden #hud-toggle:hover { opacity: 1; }
 
@@ -649,26 +649,30 @@
       }).catch(err => console.warn('[splat] load failed —', err.message || err));
 
       // -------------------- 10-day forecast (curved 3D strip) --------------------
-      // 10 card meshes arranged on a 180° arc behind the diorama. The arc's
-      // diameter matches the diorama box width. Each card has a dynamic
-      // canvas texture; the weather fetch populates them. Back wall is
-      // hidden so the cards aren't occluded.
+      // 10 card meshes arranged on a 120° arc on the FRONT side of a
+      // cylinder centred behind the diorama (the side closer to the
+      // viewer). Diameter matches the diorama box width. Cards are
+      // ~1/4 the box height and sit in the bottom third so the splat
+      // tree above stays unobstructed.
       const FORECAST_DAYS = 10;
-      const FORECAST_ARC = Math.PI;
+      const FORECAST_ARC = (2 * Math.PI) / 3;            // 120°
       const FORECAST_RADIUS = screenGeom.widthMeters * 0.5;
-      const FORECAST_CENTRE_Z = -boxDepth * 0.55;
+      const FORECAST_CENTRE_Z = -boxDepth * 0.65;        // push centre back so front arc stays inside the box
+      const FORECAST_CARD_H = screenGeom.heightMeters * 0.25;
+      const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
+      const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.27;  // bottom-third centre
       const forecastCards = [];
       for (let i = 0; i < FORECAST_DAYS; i++) {
         const t = i / (FORECAST_DAYS - 1);
         const angle = -FORECAST_ARC * 0.5 + FORECAST_ARC * t;
         const card = BJS.MeshBuilder.CreatePlane('forecastCard' + i,
-          { width: 0.08, height: 0.12 }, scene);
+          { width: FORECAST_CARD_W, height: FORECAST_CARD_H }, scene);
         card.position.set(
           Math.sin(angle) * FORECAST_RADIUS,
-          0.0,
-          FORECAST_CENTRE_Z - Math.cos(angle) * FORECAST_RADIUS,
+          FORECAST_CARD_Y,
+          FORECAST_CENTRE_Z + Math.cos(angle) * FORECAST_RADIUS,
         );
-        card.rotation.y = angle + Math.PI;  // face outward toward viewer
+        card.rotation.y = angle;  // face away from cylinder centre = toward user
         card.isPickable = false;
         const tex = new BJS.DynamicTexture('forecastTex' + i,
           { width: 256, height: 384 }, scene, false);
