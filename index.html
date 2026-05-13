@@ -155,8 +155,10 @@
         display: block; width: 18px; height: 2px;
         background: #e8eef5; border-radius: 1px;
       }
-      body.ui-hidden #hud, body.ui-hidden #preview, body.ui-hidden #build-stamp,
+      body.ui-hidden #hud, body.ui-hidden #build-stamp,
       body.ui-hidden #cal-finger-marker, body.ui-hidden #author-bar { display: none !important; }
+      /* Webcam preview is now controlled solely by the P hotkey, so
+         pressing H to hide the HUD doesn't also kill the webcam feed. */
       body.preview-hidden #preview { display: none !important; }
       body.ui-hidden #hud-toggle { opacity: 0.25; }
       body.ui-hidden #hud-toggle:hover { opacity: 1; }
