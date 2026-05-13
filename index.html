@@ -857,15 +857,11 @@
       pipeline.bloomThreshold = 0.85;
       pipeline.bloomWeight = 0.7;
 
-      // DoF is OFF by default — Gaussian splats don't write depth, so
-      // the splat tree gets treated as far-background by the DoF post
-      // process and blurs to oblivion while everything else stays sharp.
-      // Re-enable via the fx-dof slider (>0) if you swap back to a GLB.
-      pipeline.depthOfFieldEnabled = false;
+      pipeline.depthOfFieldEnabled = true;
       pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Low;
       pipeline.depthOfField.focalLength = 85;
       pipeline.depthOfField.fStop = 4.0;
-      pipeline.depthOfField.focusDistance = 700;
+      pipeline.depthOfField.focusDistance = 700;     // mm — static, set once
       pipeline.depthOfField.lensSize = 35;
 
       pipeline.chromaticAberrationEnabled = true;
@@ -1714,17 +1710,6 @@
           new BJS.Color3(1.0, 0.9, 0.6),
           windowLight.position ? windowLight.position.clone() : null);
       }
-      // Continuously lock DoF focus distance to the scene centre
-      // (treeGroup's world position) for whichever camera is active.
-      // Babylon's DoF wants focusDistance in millimetres.
-      scene.onBeforeRenderObservable.add(() => {
-        if (!pipeline || !pipeline.depthOfField) return;
-        const cam = scene.activeCamera;
-        if (!cam) return;
-        const distM = BJS.Vector3.Distance(cam.globalPosition || cam.position, treeGroup.getAbsolutePosition());
-        pipeline.depthOfField.focusDistance = distM * 1000;
-      });
-
       // Per-frame sync. Mutating light.direction in place doesn't always
       // invalidate Babylon's internal caches (ShadowLight._cache.direction,
       // material light-dirty state, etc.), so we REASSIGN to a fresh
