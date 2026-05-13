@@ -73,6 +73,7 @@
         padding: 6px;
       }
       #author-bar .btn { margin: 0; padding: 6px 12px; font-size: 12px; }
+      #author-bar .btn.active { background: #d76b3f; }
 
       #hud-toggle {
         position: fixed; top: 12px; left: 12px; z-index: 50;
@@ -176,7 +177,11 @@
     </button>
 
     <div id="author-bar">
-      <button id="save-btn" class="btn secondary" title="Snapshot transforms to localStorage + console">Save Scene</button>
+      <button id="mode-move-btn"   class="btn secondary" title="Position gizmo">Move</button>
+      <button id="mode-rotate-btn" class="btn secondary" title="Rotation gizmo">Rotate</button>
+      <button id="mode-scale-btn"  class="btn secondary" title="Scale gizmo">Scale</button>
+      <span style="width:8px"></span>
+      <button id="save-btn"  class="btn secondary" title="Snapshot transforms to localStorage + console">Save Scene</button>
       <button id="reset-btn" class="btn secondary" title="Clear saved snapshot — reload to revert">Reset</button>
     </div>
 
@@ -1302,39 +1307,56 @@
 
       let gizmoManager = null;
       let gizmoEnabled = false;
+      let gizmoMode = 'move';  // 'move' | 'rotate' | 'scale'
+      function ensureGizmoManager() {
+        if (gizmoManager) return;
+        gizmoManager = new BJS.GizmoManager(scene);
+        gizmoManager.usePointerToAttachGizmos = false;
+        gizmoManager.boundingBoxGizmoEnabled = false;
+        // Instantiate all three so utility layer exists + sub-gizmos
+        // are ready to flip on/off without per-create cost.
+        gizmoManager.positionGizmoEnabled = true;
+        gizmoManager.rotationGizmoEnabled = true;
+        gizmoManager.scaleGizmoEnabled = true;
+        try { gizmoManager.gizmos.positionGizmo.scaleRatio = 1.5; } catch {}
+        try { gizmoManager.gizmos.rotationGizmo.scaleRatio = 1.5; } catch {}
+        try { gizmoManager.gizmos.scaleGizmo.scaleRatio = 1.5; } catch {}
+        gizmoManager.attachToMesh(null);
+        const utilScene = gizmoManager.gizmos.positionGizmo.gizmoLayer.utilityLayerScene;
+        scene.onPointerObservable.add((pi) => {
+          if (!gizmoEnabled) return;
+          if (pi.type !== BJS.PointerEventTypes.POINTERDOWN) return;
+          if (pi.event.button !== 0) return;
+          // If a gizmo handle was clicked, let the gizmo own the event.
+          const utilHit = utilScene.pick(scene.pointerX, scene.pointerY);
+          if (utilHit && utilHit.hit) return;
+          const hit = scene.pick(scene.pointerX, scene.pointerY,
+            (m) => m.isPickable !== false && !GIZMO_EXCLUDE.has(m.name));
+          gizmoManager.attachToMesh(hit && hit.hit ? hit.pickedMesh : null);
+        });
+      }
+      function applyGizmoState() {
+        ensureGizmoManager();
+        const on = gizmoEnabled;
+        gizmoManager.positionGizmoEnabled = on && gizmoMode === 'move';
+        gizmoManager.rotationGizmoEnabled = on && gizmoMode === 'rotate';
+        gizmoManager.scaleGizmoEnabled    = on && gizmoMode === 'scale';
+        if (!on) gizmoManager.attachToMesh(null);
+        if (typeof setLightHandlesVisible === 'function') setLightHandlesVisible(on);
+        document.getElementById('mode-move-btn')?.classList.toggle('active',   on && gizmoMode === 'move');
+        document.getElementById('mode-rotate-btn')?.classList.toggle('active', on && gizmoMode === 'rotate');
+        document.getElementById('mode-scale-btn')?.classList.toggle('active',  on && gizmoMode === 'scale');
+      }
       function toggleGizmos() {
         gizmoEnabled = !gizmoEnabled;
-        if (!gizmoManager) {
-          gizmoManager = new BJS.GizmoManager(scene);
-          gizmoManager.usePointerToAttachGizmos = false;
-          gizmoManager.boundingBoxGizmoEnabled = false;
-          // Instantiate all three gizmos once so their utility layer
-          // exists and can be picked for click-passthrough detection.
-          gizmoManager.positionGizmoEnabled = true;
-          gizmoManager.rotationGizmoEnabled = true;
-          gizmoManager.scaleGizmoEnabled = true;
-          gizmoManager.attachToMesh(null);
-          const utilScene = gizmoManager.gizmos.positionGizmo.gizmoLayer.utilityLayerScene;
-          // Click a mesh to attach gizmos; click empty space to detach.
-          // Clicks on gizmo handles (utility-layer meshes) are passed
-          // through so the gizmo's own drag handler can run uninterrupted.
-          scene.onPointerObservable.add((pi) => {
-            if (!gizmoEnabled) return;
-            if (pi.type !== BJS.PointerEventTypes.POINTERDOWN) return;
-            if (pi.event.button !== 0) return;
-            const utilHit = utilScene.pick(scene.pointerX, scene.pointerY);
-            if (utilHit && utilHit.hit) return;
-            const hit = scene.pick(scene.pointerX, scene.pointerY,
-              (m) => m.isPickable !== false && !GIZMO_EXCLUDE.has(m.name));
-            gizmoManager.attachToMesh(hit && hit.hit ? hit.pickedMesh : null);
-          });
-        }
-        gizmoManager.positionGizmoEnabled = gizmoEnabled;
-        gizmoManager.rotationGizmoEnabled = gizmoEnabled;
-        gizmoManager.scaleGizmoEnabled = gizmoEnabled;
-        if (!gizmoEnabled) gizmoManager.attachToMesh(null);
-        if (typeof setLightHandlesVisible === 'function') setLightHandlesVisible(gizmoEnabled);
-        toast(gizmoEnabled ? 'Gizmos on — click a mesh or light bulb' : 'Gizmos off');
+        applyGizmoState();
+        toast(gizmoEnabled ? `Gizmos: ${gizmoMode}` : 'Gizmos off');
+      }
+      function setGizmoMode(mode) {
+        gizmoMode = mode;
+        gizmoEnabled = true;
+        applyGizmoState();
+        toast(`Gizmos: ${mode} — click a mesh or light bulb`);
       }
 
       // Free-orbit camera for authoring. Reuses the post-FX pipelines so
@@ -1393,6 +1415,7 @@
         if (!n || !n.name) return false;
         if (STATE_EXCLUDE.has(n.name)) return false;
         if (n.name.startsWith('__')) return false;
+        if (n.metadata && n.metadata.isLightArrow) return false;
         return true;
       }
       function snapshotNode(n) {
@@ -1466,17 +1489,44 @@
       // Hidden unless gizmo mode is on so the icons don't clutter the
       // diorama during normal viewing.
       const lightHandles = [];
+      // Quaternion that rotates local +Z onto `dir`. Deterministic, so
+      // the per-frame sync round-trips exactly.
+      function quatForwardTo(dir) {
+        const z = new BJS.Vector3(0, 0, 1);
+        const d = dir.clone().normalize();
+        const dot = BJS.Vector3.Dot(z, d);
+        if (dot > 0.9999) return BJS.Quaternion.Identity();
+        if (dot < -0.9999) return BJS.Quaternion.RotationAxis(new BJS.Vector3(0, 1, 0), Math.PI);
+        const axis = BJS.Vector3.Cross(z, d).normalize();
+        const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+        return BJS.Quaternion.RotationAxis(axis, angle);
+      }
       function addLightHandle(light, name, color, initialPos) {
-        const handle = BJS.MeshBuilder.CreateSphere(name, { diameter: 0.05, segments: 12 }, scene);
+        const handle = BJS.MeshBuilder.CreateSphere(name, { diameter: 0.06, segments: 12 }, scene);
         const mat = new BJS.StandardMaterial(name + 'Mat', scene);
         mat.emissiveColor = color;
         mat.disableLighting = true;
         handle.material = mat;
-        handle.renderingGroupId = 2;        // draw above scene
         handle.isPickable = true;
         if (initialPos) handle.position.copyFrom(initialPos);
         else if (light.position) handle.position.copyFrom(light.position);
-        if (light.direction) handle.lookAt(handle.position.add(light.direction));
+        if (light.direction) {
+          handle.rotationQuaternion = quatForwardTo(light.direction);
+        }
+        // Direction-indicator cone parented to the handle so users can
+        // SEE which way the light is shining as they rotate the gizmo.
+        const cone = BJS.MeshBuilder.CreateCylinder(name + 'Arrow', {
+          diameterTop: 0, diameterBottom: 0.03, height: 0.12, tessellation: 14,
+        }, scene);
+        const coneMat = new BJS.StandardMaterial(name + 'ArrowMat', scene);
+        coneMat.emissiveColor = color;
+        coneMat.disableLighting = true;
+        cone.material = coneMat;
+        cone.rotation.x = Math.PI / 2;     // tilt cone's Y axis to handle's +Z
+        cone.position.set(0, 0, 0.09);     // sit in front of the bulb
+        cone.parent = handle;
+        cone.isPickable = false;
+        cone.metadata = { isLightArrow: true };
         handle.metadata = { isLightHandle: true, light };
         handle.setEnabled(false);
         lightHandles.push({ handle, light });
@@ -1493,14 +1543,20 @@
           new BJS.Color3(1.0, 0.9, 0.6),
           windowLight.position ? windowLight.position.clone() : null);
       }
+      // Per-frame sync. Explicit world-matrix forward calc (independent
+      // of Babylon's handedness-aware .forward getter) for reliability.
+      const _localZ = new BJS.Vector3(0, 0, 1);
+      const _worldFwd = new BJS.Vector3();
       scene.onBeforeRenderObservable.add(() => {
         for (const { handle, light } of lightHandles) {
+          handle.computeWorldMatrix(true);
           if (!(light instanceof BJS.DirectionalLight) && light.position) {
-            light.position.copyFrom(handle.getAbsolutePosition());
+            light.position.copyFrom(handle.absolutePosition);
           }
           if (light.direction) {
-            const fwd = handle.forward;
-            light.direction.set(fwd.x, fwd.y, fwd.z).normalize();
+            BJS.Vector3.TransformNormalToRef(_localZ, handle.getWorldMatrix(), _worldFwd);
+            _worldFwd.normalize();
+            light.direction.copyFrom(_worldFwd);
           }
         }
       });
@@ -1514,6 +1570,9 @@
 
       document.getElementById('save-btn').addEventListener('click', saveSceneState);
       document.getElementById('reset-btn').addEventListener('click', clearSceneState);
+      document.getElementById('mode-move-btn').addEventListener('click', () => setGizmoMode('move'));
+      document.getElementById('mode-rotate-btn').addEventListener('click', () => setGizmoMode('rotate'));
+      document.getElementById('mode-scale-btn').addEventListener('click', () => setGizmoMode('scale'));
 
       window.addEventListener('keydown', (ev) => {
         if (ev.target instanceof HTMLInputElement) return;
