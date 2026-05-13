@@ -1308,11 +1308,22 @@
           gizmoManager = new BJS.GizmoManager(scene);
           gizmoManager.usePointerToAttachGizmos = false;
           gizmoManager.boundingBoxGizmoEnabled = false;
+          // Instantiate all three gizmos once so their utility layer
+          // exists and can be picked for click-passthrough detection.
+          gizmoManager.positionGizmoEnabled = true;
+          gizmoManager.rotationGizmoEnabled = true;
+          gizmoManager.scaleGizmoEnabled = true;
+          gizmoManager.attachToMesh(null);
+          const utilScene = gizmoManager.gizmos.positionGizmo.gizmoLayer.utilityLayerScene;
           // Click a mesh to attach gizmos; click empty space to detach.
+          // Clicks on gizmo handles (utility-layer meshes) are passed
+          // through so the gizmo's own drag handler can run uninterrupted.
           scene.onPointerObservable.add((pi) => {
             if (!gizmoEnabled) return;
             if (pi.type !== BJS.PointerEventTypes.POINTERDOWN) return;
             if (pi.event.button !== 0) return;
+            const utilHit = utilScene.pick(scene.pointerX, scene.pointerY);
+            if (utilHit && utilHit.hit) return;
             const hit = scene.pick(scene.pointerX, scene.pointerY,
               (m) => m.isPickable !== false && !GIZMO_EXCLUDE.has(m.name));
             gizmoManager.attachToMesh(hit && hit.hit ? hit.pickedMesh : null);
