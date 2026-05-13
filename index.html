@@ -582,6 +582,8 @@
         }
         bonsaiRoot.parent = treeGroup;
         console.info('[bonsai] ready, bbox', size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+        // Re-apply saved state so user tweaks override the auto-fit.
+        if (typeof restoreSceneState === 'function') restoreSceneState();
       }).catch(err => console.warn('[bonsai] load failed', err));
 
       // -------------------- Skylight source (volumetric emitter) --------------------
@@ -1348,6 +1350,90 @@
         }
       }
 
+      // -------------------- Scene state persistence --------------------
+      // Inspector / gizmo edits are runtime-only by default. S saves a
+      // snapshot of every authorable node to localStorage AND prints
+      // paste-ready code to console; the snapshot is auto-restored on
+      // every page load. R clears the snapshot.
+      const SAVE_KEY = 'bonsaiBabylonSceneState';
+      const STATE_EXCLUDE = new Set([
+        'skybox', 'wallBack', 'wallTop', 'wallBottom', 'wallLeft',
+        'lbTop', 'lbBot', 'windowPane',
+      ]);
+      function isAuthorableNode(n) {
+        if (!n || !n.name) return false;
+        if (STATE_EXCLUDE.has(n.name)) return false;
+        if (n.name.startsWith('__')) return false;
+        return true;
+      }
+      function snapshotNode(n) {
+        const out = {
+          px: n.position.x, py: n.position.y, pz: n.position.z,
+          sx: n.scaling.x, sy: n.scaling.y, sz: n.scaling.z,
+        };
+        if (n.rotationQuaternion) {
+          out.qx = n.rotationQuaternion.x; out.qy = n.rotationQuaternion.y;
+          out.qz = n.rotationQuaternion.z; out.qw = n.rotationQuaternion.w;
+        } else {
+          out.rx = n.rotation.x; out.ry = n.rotation.y; out.rz = n.rotation.z;
+        }
+        return out;
+      }
+      function applySnapshot(n, s) {
+        if (!s) return;
+        n.position.set(s.px, s.py, s.pz);
+        n.scaling.set(s.sx, s.sy, s.sz);
+        if (s.qw !== undefined) {
+          if (!n.rotationQuaternion) n.rotationQuaternion = new BJS.Quaternion();
+          n.rotationQuaternion.set(s.qx, s.qy, s.qz, s.qw);
+        } else if (s.rx !== undefined) {
+          n.rotation.set(s.rx, s.ry, s.rz);
+        }
+      }
+      function getAuthorableNodes() {
+        const out = [];
+        for (const n of scene.transformNodes) if (isAuthorableNode(n)) out.push(n);
+        for (const m of scene.meshes) if (isAuthorableNode(m)) out.push(m);
+        return out;
+      }
+      function saveSceneState() {
+        const state = {};
+        for (const n of getAuthorableNodes()) state[n.name] = snapshotNode(n);
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) { console.warn(e); }
+        const lines = [];
+        const f = (v) => v.toFixed(4);
+        for (const [name, s] of Object.entries(state)) {
+          lines.push(`// ${name}`);
+          lines.push(`scene.getNodeByName('${name}')?.position.set(${f(s.px)}, ${f(s.py)}, ${f(s.pz)});`);
+          lines.push(`scene.getNodeByName('${name}')?.scaling.set(${f(s.sx)}, ${f(s.sy)}, ${f(s.sz)});`);
+          if (s.qw !== undefined) {
+            lines.push(`scene.getNodeByName('${name}').rotationQuaternion = new BABYLON.Quaternion(${f(s.qx)}, ${f(s.qy)}, ${f(s.qz)}, ${f(s.qw)});`);
+          } else {
+            lines.push(`scene.getNodeByName('${name}')?.rotation.set(${f(s.rx)}, ${f(s.ry)}, ${f(s.rz)});`);
+          }
+        }
+        console.groupCollapsed('Scene state saved — paste into index.html for permanence');
+        console.log(lines.join('\n'));
+        console.groupEnd();
+        toast('Scene saved (localStorage + console)');
+      }
+      function clearSceneState() {
+        try { localStorage.removeItem(SAVE_KEY); } catch {}
+        toast('Saved scene cleared — reload to revert');
+      }
+      function restoreSceneState() {
+        let state = null;
+        try {
+          const raw = localStorage.getItem(SAVE_KEY);
+          if (raw) state = JSON.parse(raw);
+        } catch (e) { console.warn('[scene] bad saved state', e); }
+        if (!state) return;
+        for (const n of getAuthorableNodes()) applySnapshot(n, state[n.name]);
+      }
+      // Apply once for nodes that exist synchronously; the bonsai
+      // import callback re-applies after bonsaiRoot is attached.
+      restoreSceneState();
+
       window.addEventListener('keydown', (ev) => {
         if (ev.target instanceof HTMLInputElement) return;
         if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
@@ -1356,6 +1442,8 @@
         else if (k === 'i') toggleInspector();
         else if (k === 'g') toggleGizmos();
         else if (k === 'e') toggleEditCamera();
+        else if (k === 's') saveSceneState();
+        else if (k === 'r') clearSceneState();
       });
       if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
 
