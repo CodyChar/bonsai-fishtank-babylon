@@ -332,6 +332,11 @@
       <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
       <div class="slider-row"><span>Splat size</span><input id="splat-scale" type="range" min="0.1" max="3.0" step="0.05" value="1.0"><code id="splat-scale-val">1.00</code></div>
       <div class="slider-row"><span>Splat clip (cm)</span><input id="splat-clip" type="range" min="-30" max="100" step="0.5" value="5"><code id="splat-clip-val">5.0</code></div>
+      <div class="slider-row"><span>Slice 0 blur</span><input id="slice-blur-0" type="range" min="0" max="40" step="0.5" value="12"><code id="slice-blur-0-val">12</code></div>
+      <div class="slider-row"><span>Slice 1 blur</span><input id="slice-blur-1" type="range" min="0" max="40" step="0.5" value="6"><code id="slice-blur-1-val">6</code></div>
+      <div class="slider-row"><span>Slice 2 blur</span><input id="slice-blur-2" type="range" min="0" max="40" step="0.5" value="0"><code id="slice-blur-2-val">0</code></div>
+      <div class="slider-row"><span>Slice 3 blur</span><input id="slice-blur-3" type="range" min="0" max="40" step="0.5" value="6"><code id="slice-blur-3-val">6</code></div>
+      <div class="slider-row"><span>Slice 4 blur</span><input id="slice-blur-4" type="range" min="0" max="40" step="0.5" value="12"><code id="slice-blur-4-val">12</code></div>
       <div class="slider-row"><span>Splat blur</span><input id="splat-blur" type="range" min="0" max="80" step="0.5" value="0"><code id="splat-blur-val">0</code></div>
       <div class="slider-row"><span>Blur near (m)</span><input id="splat-blur-near" type="range" min="0.05" max="5.0" step="0.05" value="0.30"><code id="splat-blur-near-val">0.30</code></div>
       <div class="slider-row"><span>Blur far (m)</span><input id="splat-blur-far" type="range" min="0.10" max="20.0" step="0.05" value="3.00"><code id="splat-blur-far-val">3.00</code></div>
@@ -980,6 +985,95 @@
           if (typeof restoreSceneState === 'function') restoreSceneState();
         }).catch(err => console.warn('[splat] load failed —', err.message || err));
       }
+      // ----- Layered splat DoF (5-slice "rack focus" approach) -----
+      // We render the splat 5 times into separate RTTs, each time
+      // clipped to a z-range with two clip planes. Each RTT then runs
+      // a separable Gaussian blur tied to its own slider. The blurred
+      // RTTs composite back as foreground layers, ordered far-to-near.
+      const SLICE_COUNT = 5;
+      const SLICE_LAYER_MASK = 0x10000000;
+      const sliceState = {
+        // World-Z boundaries (relative to camera @ z=0.61, scene -Z is
+        // into the diorama). 6 values for 5 bands.
+        bounds: [0.10, -0.05, -0.20, -0.35, -0.50, -0.65],
+        blurs:  [12, 6, 0, 6, 12],   // px per slice; mid is 'focal'
+        slices: [],
+      };
+      function teardownSplatSlices() {
+        for (const s of sliceState.slices) {
+          try { s.layer && s.layer.dispose(); } catch {}
+          try { s.rtt && s.rtt.dispose(); } catch {}
+          try { s.blurH && s.blurH.dispose(); } catch {}
+          try { s.blurV && s.blurV.dispose(); } catch {}
+          try { s.sliceCam && s.sliceCam.dispose(); } catch {}
+        }
+        sliceState.slices = [];
+        // Drop the slice layer mask from the main camera if it was added.
+        camera.layerMask = 0x0FFFFFFF;
+      }
+      function setupSplatSlices() {
+        teardownSplatSlices();
+        if (!splatMesh) return;
+        // Hide the splat from the main camera; only slice cameras see it.
+        splatMesh.layerMask = SLICE_LAYER_MASK;
+        camera.layerMask = 0x0FFFFFFF & ~SLICE_LAYER_MASK;
+        // Half-res RTTs keep cost reasonable.
+        const w = Math.max(64, Math.floor(engine.getRenderWidth()  / 2));
+        const h = Math.max(64, Math.floor(engine.getRenderHeight() / 2));
+        for (let i = 0; i < SLICE_COUNT; i++) {
+          const near = Math.min(sliceState.bounds[i], sliceState.bounds[i + 1]);
+          const far  = Math.max(sliceState.bounds[i], sliceState.bounds[i + 1]);
+          const sliceCam = new BJS.FreeCamera('sliceCam_' + i, camera.position.clone(), scene);
+          sliceCam.layerMask = SLICE_LAYER_MASK;
+          sliceCam.inputs.clear();
+          sliceCam.minZ = camera.minZ;
+          sliceCam.maxZ = camera.maxZ;
+          const rtt = new BJS.RenderTargetTexture('sliceRTT_' + i, { width: w, height: h }, scene, false);
+          rtt.activeCamera = sliceCam;
+          rtt.clearColor = new BJS.Color4(0, 0, 0, 0);
+          rtt.renderList = [splatMesh];
+          rtt.refreshRate = BJS.RenderTargetTexture.REFRESHRATE_RENDER_ONEVERYFRAME;
+          // Separable Gaussian: H + V. Babylon attaches them to the
+          // sliceCam, so they run automatically when the RTT renders.
+          const r0 = Math.max(0.01, sliceState.blurs[i]);
+          const blurH = new BJS.BlurPostProcess('sliceBlurH_' + i, new BJS.Vector2(1, 0), r0, 1.0, sliceCam);
+          const blurV = new BJS.BlurPostProcess('sliceBlurV_' + i, new BJS.Vector2(0, 1), r0, 1.0, sliceCam);
+          rtt.onBeforeRenderObservable.add(() => {
+            // Mirror the main camera's pose + projection each frame.
+            sliceCam.position.copyFrom(camera.position);
+            try { sliceCam.freezeProjectionMatrix(camera.getProjectionMatrix()); } catch {}
+            scene.clipPlane  = new BJS.Plane(0, 0, 1, -near);   // keep z > near
+            scene.clipPlane2 = new BJS.Plane(0, 0, -1, far);    // keep z < far
+          });
+          rtt.onAfterRenderObservable.add(() => {
+            scene.clipPlane = null;
+            scene.clipPlane2 = null;
+          });
+          scene.customRenderTargets.push(rtt);
+          // Foreground layer composites this slice over the main scene.
+          const layer = new BJS.Layer('sliceLayer_' + i, null, scene);
+          layer.texture = rtt;
+          layer.isBackground = false;
+          layer.alphaBlendingMode = BJS.Engine.ALPHA_COMBINE;
+          sliceState.slices.push({ near, far, sliceCam, rtt, blurH, blurV, layer });
+        }
+        console.info('[splat-dof] 5 slices set up. blurs:', sliceState.blurs.join(', '));
+      }
+      function setSliceBlur(i, v) {
+        sliceState.blurs[i] = v;
+        const s = sliceState.slices[i];
+        if (!s) return;
+        try { s.blurH.kernel = Math.max(0.01, v); } catch {}
+        try { s.blurV.kernel = Math.max(0.01, v); } catch {}
+      }
+      // Re-apply slicing every time we load a fresh splat.
+      const _origLoadSplat = loadSplat;
+      loadSplat = function patchedLoadSplat(url, opts) {
+        teardownSplatSlices();
+        return _origLoadSplat(url, opts).then(() => {
+          if (splatMesh) setupSplatSlices();
+        });
+      };
       loadSplat('tree.spz');
 
       // -------------------- Space Needle textured model --------------------
@@ -2867,6 +2961,10 @@
       bindSlider('splat-blur', 'splat-blur-val', v => { splatBlurAmount = v; });
       bindSlider('splat-blur-near', 'splat-blur-near-val', v => { splatBlurNearM = v; });
       bindSlider('splat-blur-far',  'splat-blur-far-val',  v => { splatBlurFarM  = v; });
+      for (let i = 0; i < 5; i++) {
+        bindSlider('slice-blur-' + i, 'slice-blur-' + i + '-val',
+          ((idx) => (v) => setSliceBlur(idx, v))(i));
+      }
       bindSlider('panel-blur', 'panel-blur-val', v => {
         nowCardInner.style.setProperty('--panel-blur', v + 'px');
         panelStyle.blur = v;
