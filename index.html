@@ -1016,11 +1016,6 @@
       forecastCards.forEach((slot) =>
         paintForecastCard(slot, { dayLabel: '—', dateLabel: '—', cond: 'Loading…', icon: 'cloud', hi: '—', lo: '—' })
       );
-      // Hide the back wall so cards aren't occluded.
-      {
-        const bw = scene.getNodeByName('wallBack');
-        if (bw) bw.setEnabled(false);
-      }
 
       // -------------------- Skylight source (volumetric emitter) --------------------
       // A tiny emissive disc at the upper-right of the ceiling that
