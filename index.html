@@ -962,33 +962,12 @@
               }
             } catch (e) { console.warn('material walk failed:', e.message); }
             console.groupEnd();
-            // Per-gaussian DoF via _splatPositions.w. _splatPositions is
-            // packed as (x, y, z, w) per gaussian; w most often holds
-            // opacity in splat formats. Back it up and modulate per
-            // frame by distance from the focal plane.
-            const pos = splatMesh._splatPositions;
-            if (pos && pos.length > 0) {
-              _splatPositionsBuf = pos;
-              _splatScalesBuf = pos;  // alias so the per-frame guard passes
-              const count = (pos.length / 4) | 0;
-              _splatOrigScales = new Float32Array(count);
-              for (let i = 0; i < count; i++) _splatOrigScales[i] = pos[i*4 + 3];
-              const refreshNames = ['updateData', '_updateData', '_rebuild',
-                                    'updateDataAsync', 'refreshBoundingInfo'];
-              for (const fn of refreshNames) {
-                if (typeof splatMesh[fn] === 'function') {
-                  _splatDoFRefresh = () => { try { splatMesh[fn](); } catch {} };
-                  console.info('[splat] DoF refresh hook ->', fn);
-                  break;
-                }
-              }
-              console.info('[splat] DoF w-channel: backed up', count, 'opacities; refresh',
-                _splatDoFRefresh ? 'yes' : 'no');
-            } else {
-              _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
-              _splatDoFRefresh = null;
-              console.warn('[splat] DoF: _splatPositions not accessible');
-            }
+            // Per-gaussian DoF disabled — w wasn't opacity on this build
+            // and modifying _splatPositions blanked the splat. Sticking
+            // with the depth-proxy fake DoF (created earlier) until
+            // Babylon exposes a real per-gaussian hook.
+            _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
+            _splatDoFRefresh = null;
           }
           if (typeof restoreSceneState === 'function') restoreSceneState();
         }).catch(err => console.warn('[splat] load failed —', err.message || err));
@@ -2695,30 +2674,7 @@
           // value always wins, regardless of any internal cache or
           // observable re-applying older values.
           pipeline.depthOfField.focalLength = userFocalLength;
-          // Per-gaussian splat DoF: fade out-of-focus gaussians by
-          // dropping their opacity (the w component of _splatPositions
-          // in this Babylon build's packing).
-          if (_splatDoFActive && _splatPositionsBuf && _splatOrigScales) {
-            splatMesh.computeWorldMatrix(true);
-            const wm = splatMesh.getWorldMatrix();
-            const focalWorldZ = camera.position.z - focusM;
-            const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
-            const k = 40 * dofStrength;   // fade rate per metre squared
-            const pos = _splatPositionsBuf;
-            const orig = _splatOrigScales;
-            const count = (pos.length / 4) | 0;
-            const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
-            for (let i = 0; i < count; i++) {
-              const i4 = i * 4;
-              const worldZ = m02 * pos[i4] + m06 * pos[i4 + 1] + m10 * pos[i4 + 2] + m14;
-              const d = worldZ - focalWorldZ;
-              const fade = 1 / (1 + k * d * d);
-              pos[i4 + 3] = orig[i] * fade;
-            }
-            if (_splatDoFRefresh) {
-              try { _splatDoFRefresh(); } catch (e) { /* swallow */ }
-            }
-          }
+          // Per-gaussian splat DoF removed — see splat loader comment.
         }
       });
 
@@ -2874,16 +2830,8 @@
         // Slider 0..50 -> fStop 16..0.5 linear. v=0 = pinhole (deep
         // DoF), v=50 = wide-open aperture (extreme blur).
         pipeline.depthOfField.fStop = Math.max(0.5, 16 - 0.31 * v);
-        // Engage per-gaussian splat DoF whenever the slider is > 0.
-        _splatDoFActive = v > 0;
-        // If turning off, restore each gaussian's original w (opacity)
-        // so the splat snaps back to its original look.
-        if (v === 0 && _splatPositionsBuf && _splatOrigScales) {
-          const pos = _splatPositionsBuf;
-          const count = _splatOrigScales.length;
-          for (let i = 0; i < count; i++) pos[i*4 + 3] = _splatOrigScales[i];
-          if (_splatDoFRefresh) try { _splatDoFRefresh(); } catch {}
-        }
+        // Per-gaussian DoF disabled; slider only drives the standard
+        // post-process DoF + the depth-proxy box on the splat.
       });
       bindSlider('fx-focal', 'fx-focal-val', (v, inp) => {
         userFocalLength = v;   // applied per-frame in the DoF observable
