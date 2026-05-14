@@ -331,8 +331,8 @@
 
       <h2>Cinematic</h2>
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
-      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="12" step="0.1" value="0.7"><code id="fx-dof-val">0.7</code></div>
-      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.05" max="5.0" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
+      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.05" value="1.0"><code id="fx-dof-val">1.0</code></div>
+      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="2.0" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="10"><code id="fx-chrom-val">10</code></div>
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.35"><code id="fx-vign-val">0.35</code></div>
@@ -1131,15 +1131,11 @@
       pipeline.bloomWeight = 0.7;
 
       pipeline.depthOfFieldEnabled = true;
-      // High blur kernel + long lens + big lensSize so changes to focus
-      // distance / fStop produce a visibly different image. The diorama
-      // depth is tiny (~30 cm), so without these we can move focus a
-      // metre and barely see anything.
-      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.High;
-      pipeline.depthOfField.focalLength = 160;       // telephoto — more compression / bokeh
-      pipeline.depthOfField.fStop = 1.4;             // wide aperture by default
-      pipeline.depthOfField.focusDistance = 550;     // sync with the fx-focus slider default
-      pipeline.depthOfField.lensSize = 80;           // big simulated iris
+      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Medium;
+      pipeline.depthOfField.focalLength = 85;        // normal portrait lens
+      pipeline.depthOfField.fStop = 2.8;
+      pipeline.depthOfField.focusDistance = 550;     // matches the fx-focus slider default
+      pipeline.depthOfField.lensSize = 50;
 
       pipeline.chromaticAberrationEnabled = true;
       pipeline.chromaticAberration.aberrationAmount = 10;
@@ -2316,12 +2312,9 @@
       bindSlider('fx-bloom', 'fx-bloom-val', v => { pipeline.bloomWeight = v; });
       bindSlider('fx-dof', 'fx-dof-val', v => {
         pipeline.depthOfFieldEnabled = v > 0;
-        // Slider 0..12 -> fStop 16..0.3 on an exponential curve so
-        // the low end actually opens way up (lots of blur) and the
-        // high end closes way down (deep DoF), instead of staying
-        // bunched around the middle.
-        const tNorm = Math.min(1, v / 12);
-        pipeline.depthOfField.fStop = Math.max(0.3, 16 * Math.pow(0.04, tNorm));
+        // Slider 0..5 -> fStop 8..1.0 linear. v=0 = nearly pinhole
+        // (everything in focus); v=5 = max blur on a portrait lens.
+        pipeline.depthOfField.fStop = Math.max(1.0, 8 - 1.4 * v);
       });
       bindSlider('fx-focus', 'fx-focus-val', v => { pipeline.depthOfField.focusDistance = v * 1000; });
       bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
