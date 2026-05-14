@@ -986,10 +986,10 @@
         }).catch(err => console.warn('[splat] load failed —', err.message || err));
       }
       // ----- Layered splat DoF (5-slice "rack focus" approach) -----
-      // We render the splat 5 times into separate RTTs, each time
-      // clipped to a z-range with two clip planes. Each RTT then runs
-      // a separable Gaussian blur tied to its own slider. The blurred
-      // RTTs composite back as foreground layers, ordered far-to-near.
+      // EXPERIMENTAL — currently disabled while we debug. Setting
+      // ENABLE_SPLAT_SLICES = true engages it and hides the splat from
+      // the main camera while 5 RTTs render slices for compositing.
+      const ENABLE_SPLAT_SLICES = false;
       const SLICE_COUNT = 5;
       const SLICE_LAYER_MASK = 0x10000000;
       const sliceState = {
@@ -1010,9 +1010,11 @@
         sliceState.slices = [];
         // Drop the slice layer mask from the main camera if it was added.
         camera.layerMask = 0x0FFFFFFF;
+        if (splatMesh) splatMesh.layerMask = 0x0FFFFFFF;
       }
       function setupSplatSlices() {
         teardownSplatSlices();
+        if (!ENABLE_SPLAT_SLICES) return;   // gated off while debugging
         if (!splatMesh) return;
         // Hide the splat from the main camera; only slice cameras see it.
         splatMesh.layerMask = SLICE_LAYER_MASK;
