@@ -792,6 +792,19 @@
           try { splatRoot.dispose(); } catch {}
           splatRoot = null;
         }
+        // Belt-and-suspenders: scan the scene for any leftover splat
+        // meshes / splatRoot nodes from previous loads (rapid preset
+        // switching, hot reload, etc.) and dispose them too.
+        for (const m of scene.meshes.slice()) {
+          if (m.getClassName && m.getClassName() === 'GaussianSplattingMesh') {
+            try { m.dispose(); } catch {}
+          }
+        }
+        for (const n of scene.transformNodes.slice()) {
+          if (n.name === 'splatRoot') {
+            try { n.dispose(); } catch {}
+          }
+        }
         console.info('[splat] fetching', url, '…');
         const t0 = performance.now();
         return BJS.SceneLoader.ImportMeshAsync('', './', url, scene).then((res) => {
@@ -802,7 +815,7 @@
           splatMesh = m;
           splatRoot = new BJS.TransformNode('splatRoot', scene);
           splatMesh.parent = splatRoot;
-          splatRoot.parent = treeGroup;
+          splatRoot.parent = diorama;   // parented directly to diorama, not treeGroup
           if (splatMesh.material) splatMesh.material.disableDepthWrite = true;
           // Auto-fit bbox to 0.3 m longest edge.
           splatMesh.computeWorldMatrix(true);
