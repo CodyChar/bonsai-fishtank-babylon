@@ -2027,6 +2027,11 @@
         } else {
           out.rx = n.rotation.x; out.ry = n.rotation.y; out.rz = n.rotation.z;
         }
+        // Visibility — Inspector's eye toggle hits setEnabled() on a
+        // Node, and isVisible on meshes. Capture both so a hidden /
+        // shown node sticks across reloads.
+        if (typeof n.isEnabled === 'function') out.en = n.isEnabled();
+        if (typeof n.isVisible !== 'undefined') out.iv = !!n.isVisible;
         return out;
       }
       function applySnapshot(n, s) {
@@ -2038,6 +2043,12 @@
           n.rotationQuaternion.set(s.qx, s.qy, s.qz, s.qw);
         } else if (s.rx !== undefined) {
           n.rotation.set(s.rx, s.ry, s.rz);
+        }
+        if (typeof s.en !== 'undefined' && typeof n.setEnabled === 'function') {
+          n.setEnabled(!!s.en);
+        }
+        if (typeof s.iv !== 'undefined' && typeof n.isVisible !== 'undefined') {
+          n.isVisible = !!s.iv;
         }
       }
       function getAuthorableNodes() {
