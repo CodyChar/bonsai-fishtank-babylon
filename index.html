@@ -2191,11 +2191,7 @@
         'seattle-splat-1':  {
           label: 'Seattle Splat 1',
           splatUrl: 'seattle-splat.spz',
-          // Captured from the Inspector after manual tweaking. Rotation
-          // dropped — the 0.68 z value baked the splat in askew.
-          rootPosition: new BJS.Vector3(0, 0.03, 0.02),
-          rootScaling:  new BJS.Vector3(0.11, 0.11, 0.11),
-          meshScaling:  new BJS.Vector3(0.23, 0.23, 0.28),
+          // No transform overrides — let the auto-fit place the splat.
           apply: () => {
             setWallsVisible(false);   // hide all shoebox walls + ceiling + floor
             setMainLightsVisible(false);
