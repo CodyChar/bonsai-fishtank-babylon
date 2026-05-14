@@ -344,11 +344,11 @@
 
       <h2>Cinematic</h2>
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
-      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.05" value="1.0"><code id="fx-dof-val">1.0</code></div>
+      <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="15" step="0.05" value="1.0"><code id="fx-dof-val">1.0</code></div>
       <div class="slider-row"><span>Focal length</span><input id="fx-focal" type="range" min="14" max="300" step="1" value="85"><code id="fx-focal-val">85</code></div>
       <div class="slider-row"><span>FoV zoom</span><input id="fx-fov" type="range" min="0.30" max="3.00" step="0.01" value="1.00"><code id="fx-fov-val">1.00</code></div>
-      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="20.0" step="0.01" value="0.49"><code id="fx-focus-val">0.49</code></div>
-      <div class="slider-row"><span>Near focus (m)</span><input id="fx-focus-near" type="range" min="0.10" max="15.0" step="0.01" value="0.80"><code id="fx-focus-near-val">0.80</code></div>
+      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="30.0" step="0.01" value="0.49"><code id="fx-focus-val">0.49</code></div>
+      <div class="slider-row"><span>Near focus (m)</span><input id="fx-focus-near" type="range" min="0.10" max="30.0" step="0.01" value="0.80"><code id="fx-focus-near-val">0.80</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="1"><code id="fx-chrom-val">1</code></div>
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.44"><code id="fx-vign-val">0.44</code></div>
@@ -1078,10 +1078,40 @@
         }
         ctx.restore();
       }
+      // Global panel style — read by paintForecastCard so the 3D cards
+      // share the look + slider values with the screen-space now-card.
+      // Tied to the panel-blur / panel-grain / panel-radius sliders.
+      const panelStyle = {
+        radius: 28,   // panel-radius slider (px on the 256x384 canvas)
+        grain:  0.13, // panel-grain slider (noise opacity 0..0.5)
+        blur:   13,   // panel-blur slider (informational here; canvas
+                      // can't blur the scene behind a 3D card, so this
+                      // value drives the gradient density instead)
+      };
+      // Pre-computed noise pattern reused across paints so we don't
+      // re-generate the SVG-equivalent fractal noise each repaint.
+      let _noisePattern = null;
+      function getNoisePattern(ctx) {
+        if (_noisePattern) return _noisePattern;
+        const N = 220;
+        const off = document.createElement('canvas');
+        off.width = N; off.height = N;
+        const octx = off.getContext('2d');
+        const imgData = octx.createImageData(N, N);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const v = (Math.random() * 255) | 0;
+          data[i] = v; data[i+1] = v; data[i+2] = v; data[i+3] = 255;
+        }
+        octx.putImageData(imgData, 0, 0);
+        _noisePattern = ctx.createPattern(off, 'repeat');
+        return _noisePattern;
+      }
       function paintForecastCard(slot, day) {
         const tex = slot.tex;
         const ctx = tex.getContext();
-        const W = 256, H = 384, R = 22;
+        const W = 256, H = 384;
+        const R = Math.max(0, Math.min(W * 0.5, panelStyle.radius));
         ctx.clearRect(0, 0, W, H);
         function roundRectPath() {
           ctx.beginPath();
@@ -1092,29 +1122,50 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Frosted body
+        // Match the now-card's white-top -> black-mid -> black-bottom
+        // glass gradient. panelStyle.blur subtly tints the mid band
+        // darker so 'more blur' reads as 'more frosted'.
+        const midDark = Math.min(0.55, 0.30 + panelStyle.blur * 0.012);
         roundRectPath();
         const body = ctx.createLinearGradient(0, 0, 0, H);
-        body.addColorStop(0,   'rgba(255, 255, 255, 0.30)');
-        body.addColorStop(0.5, 'rgba(255, 255, 255, 0.16)');
-        body.addColorStop(1,   'rgba(255, 255, 255, 0.22)');
+        body.addColorStop(0,   'rgba(255, 255, 255, 0.18)');
+        body.addColorStop(0.5, `rgba(0, 0, 0, ${midDark.toFixed(3)})`);
+        body.addColorStop(1,   `rgba(0, 0, 0, ${(midDark * 0.82).toFixed(3)})`);
         ctx.fillStyle = body;
         ctx.fill();
-        // Top sheen
+        // Inner top sheen (clipped to rounded shape).
         ctx.save();
         ctx.clip();
-        const sheen = ctx.createLinearGradient(0, 0, 0, 70);
+        const sheen = ctx.createLinearGradient(0, 0, 0, 80);
         sheen.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
         sheen.addColorStop(1, 'rgba(255, 255, 255, 0.00)');
         ctx.fillStyle = sheen;
-        ctx.fillRect(0, 0, W, 70);
+        ctx.fillRect(0, 0, W, 80);
+        // Specular catch on top-left corner — matches the now-card
+        // ::before pseudo's screen-blend radial gradients.
+        const spec1 = ctx.createRadialGradient(W * 0.18, 0, 0, W * 0.18, 0, W * 0.95);
+        spec1.addColorStop(0,    'rgba(255, 255, 255, 0.22)');
+        spec1.addColorStop(0.55, 'rgba(255, 255, 255, 0.00)');
+        ctx.fillStyle = spec1;
+        ctx.fillRect(0, 0, W, H);
+        // Noise grain — tied to the panel-grain slider, matching the
+        // ::after pseudo. Painted across the clipped rounded area.
+        if (panelStyle.grain > 0) {
+          const pat = getNoisePattern(ctx);
+          ctx.globalAlpha = panelStyle.grain;
+          ctx.globalCompositeOperation = 'overlay';
+          ctx.fillStyle = pat;
+          ctx.fillRect(0, 0, W, H);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
         ctx.restore();
-        // Bright rim
+        // Bright rim outline — matches the now-card's inset 1.2px white.
         roundRectPath();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
         ctx.lineWidth = 2.5;
         ctx.stroke();
-        // Layout: day + date at top, big icon middle, hi/lo at bottom
+        // Layout: day + date at top, big icon middle, hi/lo at bottom.
         ctx.textAlign = 'center';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
         ctx.shadowBlur = 8;
@@ -1124,10 +1175,8 @@
         ctx.font = '24px system-ui';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.fillText(day.dateLabel, W / 2, 96);
-        // Icon
         ctx.shadowBlur = 10;
         drawWeatherIcon(ctx, day.icon || 'cloud', W / 2, 210, 130);
-        // Hi/Lo
         ctx.shadowBlur = 8;
         ctx.font = 'bold 52px system-ui';
         ctx.fillStyle = '#ffffff';
@@ -1137,6 +1186,20 @@
         ctx.fillText(day.lo + '°', W / 2 + 56, 350);
         ctx.shadowBlur = 0;
         tex.update();
+      }
+      // Cache the latest paint inputs so we can repaint when the
+      // panel-style sliders move.
+      const _lastForecastDays = new Array(FORECAST_DAYS).fill(null);
+      const _origPaintForecastCard = paintForecastCard;
+      paintForecastCard = function paintForecastCardCaching(slot, day) {
+        const idx = forecastCards.indexOf(slot);
+        if (idx >= 0) _lastForecastDays[idx] = day;
+        _origPaintForecastCard(slot, day);
+      };
+      function repaintAllForecastCards() {
+        for (let i = 0; i < forecastCards.length; i++) {
+          if (_lastForecastDays[i]) _origPaintForecastCard(forecastCards[i], _lastForecastDays[i]);
+        }
       }
       // Initial placeholder so cards aren't blank before fetch resolves.
       forecastCards.forEach((slot) =>
@@ -2619,9 +2682,13 @@
       });
       bindSlider('panel-blur', 'panel-blur-val', v => {
         nowCardInner.style.setProperty('--panel-blur', v + 'px');
+        panelStyle.blur = v;
+        repaintAllForecastCards();
       });
       bindSlider('panel-grain', 'panel-grain-val', v => {
         nowCardInner.style.setProperty('--panel-grain', v.toFixed(2));
+        panelStyle.grain = v;
+        repaintAllForecastCards();
       });
       const acrylicWarpDispMap = document.querySelector('#acrylic-warp feDisplacementMap');
       bindSlider('panel-refract', 'panel-refract-val', v => {
@@ -2629,6 +2696,10 @@
       });
       bindSlider('panel-radius', 'panel-radius-val', v => {
         nowCardInner.style.setProperty('--panel-radius', v + 'px');
+        // Map CSS pixel radius (panel ~320px wide) to canvas radius
+        // (texture 256px wide) so the proportions match.
+        panelStyle.radius = (v / 320) * 256;
+        repaintAllForecastCards();
       });
 
       bindSlider('sun-incl', 'sun-incl-val', v => updateSun());
@@ -2656,9 +2727,9 @@
       bindSlider('fx-bloom', 'fx-bloom-val', v => { pipeline.bloomWeight = v; });
       bindSlider('fx-dof', 'fx-dof-val', v => {
         pipeline.depthOfFieldEnabled = v > 0;
-        // Slider 0..5 -> fStop 8..1.0 linear. v=0 = nearly pinhole
-        // (everything in focus); v=5 = max blur on a portrait lens.
-        pipeline.depthOfField.fStop = Math.max(1.0, 8 - 1.4 * v);
+        // Slider 0..15 -> fStop 12..0.5 linear. v=0 = pinhole (deep
+        // DoF), v=15 = wide-open aperture (max blur).
+        pipeline.depthOfField.fStop = Math.max(0.5, 12 - 0.77 * v);
       });
       bindSlider('fx-focal', 'fx-focal-val', (v, inp) => {
         userFocalLength = v;   // applied per-frame in the DoF observable
