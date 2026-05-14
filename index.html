@@ -1137,11 +1137,15 @@
       pipeline.bloomWeight = 0.7;
 
       pipeline.depthOfFieldEnabled = true;
-      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Low;
-      pipeline.depthOfField.focalLength = 85;
-      pipeline.depthOfField.fStop = 4.0;
-      pipeline.depthOfField.focusDistance = 700;     // mm — static, set once
-      pipeline.depthOfField.lensSize = 35;
+      // High blur kernel + long lens + big lensSize so changes to focus
+      // distance / fStop produce a visibly different image. The diorama
+      // depth is tiny (~30 cm), so without these we can move focus a
+      // metre and barely see anything.
+      pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.High;
+      pipeline.depthOfField.focalLength = 160;       // telephoto — more compression / bokeh
+      pipeline.depthOfField.fStop = 1.4;             // wide aperture by default
+      pipeline.depthOfField.focusDistance = 700;
+      pipeline.depthOfField.lensSize = 80;           // big simulated iris
 
       pipeline.chromaticAberrationEnabled = true;
       pipeline.chromaticAberration.aberrationAmount = 10;
@@ -2327,7 +2331,12 @@
       bindSlider('fx-bloom', 'fx-bloom-val', v => { pipeline.bloomWeight = v; });
       bindSlider('fx-dof', 'fx-dof-val', v => {
         pipeline.depthOfFieldEnabled = v > 0;
-        pipeline.depthOfField.fStop = Math.max(0.3, 12 - v);  // invert: high slider = strong blur = low fStop
+        // Slider 0..12 -> fStop 16..0.3 on an exponential curve so
+        // the low end actually opens way up (lots of blur) and the
+        // high end closes way down (deep DoF), instead of staying
+        // bunched around the middle.
+        const tNorm = Math.min(1, v / 12);
+        pipeline.depthOfField.fStop = Math.max(0.3, 16 * Math.pow(0.04, tNorm));
       });
       bindSlider('fx-focus', 'fx-focus-val', v => { farFocusMm = v * 1000; });
       bindSlider('fx-focus-near', 'fx-focus-near-val', v => { nearFocusMm = v * 1000; });
