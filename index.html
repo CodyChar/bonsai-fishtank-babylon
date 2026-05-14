@@ -744,21 +744,39 @@
       // World-Z plane in front of the screen at which the splat is
       // sliced. Live-bound to the Splat clip slider. Default 5 cm.
       let splatForwardClipM = 0.05;
-      // Apply the slider's per-gaussian scale to whichever property the
-      // current Babylon build exposes for it. Falls back to a console
-      // warning if none of the known names exist.
+      // Apply the slider's per-gaussian scale through every known
+      // surface area on the splat mesh / material. Babylon exposes
+      // this under different names across versions so we cast a wide
+      // net and log what actually landed.
       function applySplatSize() {
         if (!splatMesh) return;
         const v = splatSizeScale;
-        const tryProps = ['splatScale', 'splatSize', 'kernelSize', 'scaleFactor', '_splatScale'];
-        for (const p of tryProps) {
-          if (splatMesh[p] !== undefined) { splatMesh[p] = v; return; }
+        const candidates = ['splatScale', 'splatSize', 'kernelSize',
+                            'scaleFactor', '_splatScale', 'pointSize',
+                            'splatRadius', 'uniformScale'];
+        const hits = [];
+        for (const k of candidates) {
+          if (splatMesh[k] !== undefined) {
+            try { splatMesh[k] = v; hits.push('mesh.' + k); } catch {}
+          }
           const mat = splatMesh.material;
-          if (mat && mat[p] !== undefined) { mat[p] = v; return; }
+          if (mat && mat[k] !== undefined) {
+            try { mat[k] = v; hits.push('material.' + k); } catch {}
+          }
         }
-        // Last resort: set on material with a generic name; the shader
-        // may pick it up if Babylon registered it as a uniform.
-        if (splatMesh.material) splatMesh.material.splatScale = v;
+        // ShaderMaterial-style uniform setter — try every candidate
+        // name; cheap and only logs once on success.
+        const mat = splatMesh.material;
+        if (mat && typeof mat.setFloat === 'function') {
+          for (const k of candidates) {
+            try { mat.setFloat(k, v); hits.push('material.setFloat("' + k + '")'); } catch {}
+          }
+        }
+        if (hits.length) {
+          console.info('[splat] size =', v, 'applied via', hits.join(', '));
+        } else {
+          console.warn('[splat] no recognised splat-scale property on this Babylon build');
+        }
       }
       function loadSplat(url, opts) {
         // Tear down whatever's already loaded.
@@ -811,19 +829,16 @@
           // rest of the scene (cards, walls, needle) is untouched.
           // Inverted from the previous version — normal (0, 0, 1) means
           // pixels with z > d are kept and pixels with z < d are clipped.
-          // Try every clip-plane channel Babylon exposes so the splat
-          // shader has a chance to pick up the cut. Different Babylon
-          // builds wire splat materials through different paths.
+          // Original orientation that worked when hardcoded:
+          // Plane(0, 0, -1, +d) keeps z < d and clips z >= d. With d
+          // positive, everything in front of (toward the user) that
+          // plane is culled. Read from splatForwardClipM each frame
+          // so the slider drives the cut live.
           splatMesh.onBeforeRenderObservable.add(() => {
-            const plane = new BJS.Plane(0, 0, 1, -splatForwardClipM);
-            scene.clipPlane = plane;
-            if (splatMesh.material) splatMesh.material.clipPlane = plane;
-            splatMesh.clipPlane = plane;
+            scene.clipPlane = new BJS.Plane(0, 0, -1, splatForwardClipM);
           });
           splatMesh.onAfterRenderObservable.add(() => {
             scene.clipPlane = null;
-            if (splatMesh.material) splatMesh.material.clipPlane = null;
-            splatMesh.clipPlane = null;
           });
           // Hide the GLB tree so the splat owns the scene centre.
           const glbRoot = scene.getNodeByName('bonsaiRoot');
@@ -2176,10 +2191,10 @@
         'seattle-splat-1':  {
           label: 'Seattle Splat 1',
           splatUrl: 'seattle-splat.spz',
-          // Captured from the Inspector after manual tweaking.
+          // Captured from the Inspector after manual tweaking. Rotation
+          // dropped — the 0.68 z value baked the splat in askew.
           rootPosition: new BJS.Vector3(0, 0.03, 0.02),
           rootScaling:  new BJS.Vector3(0.11, 0.11, 0.11),
-          meshRotation: new BJS.Vector3(0, 0, 0.68),
           meshScaling:  new BJS.Vector3(0.23, 0.23, 0.28),
           apply: () => {
             setWallsVisible(false);   // hide all shoebox walls + ceiling + floor
