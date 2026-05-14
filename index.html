@@ -335,7 +335,7 @@
       <h2>Cinematic</h2>
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
       <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.05" value="1.0"><code id="fx-dof-val">1.0</code></div>
-      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="2.0" step="0.01" value="0.85"><code id="fx-focus-val">0.85</code></div>
+      <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="2.0" step="0.01" value="0.49"><code id="fx-focus-val">0.49</code></div>
       <div class="slider-row"><span>Near focus (m)</span><input id="fx-focus-near" type="range" min="0.10" max="1.5" step="0.01" value="0.80"><code id="fx-focus-near-val">0.80</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="1"><code id="fx-chrom-val">1</code></div>
@@ -1138,7 +1138,7 @@
       pipeline.depthOfFieldBlurLevel = BJS.DepthOfFieldEffectBlurLevel.Medium;
       pipeline.depthOfField.focalLength = 85;        // normal portrait lens
       pipeline.depthOfField.fStop = 2.8;
-      pipeline.depthOfField.focusDistance = 850;     // matches the fx-focus slider default
+      pipeline.depthOfField.focusDistance = 490;     // matches the fx-focus slider default
       pipeline.depthOfField.lensSize = 50;
 
       pipeline.chromaticAberrationEnabled = true;
@@ -2149,7 +2149,7 @@
       // — but the SPOT itself doesn't follow the camera.
       const FOCUS_SEAT_Z  = 0.61;             // matches the FreeCamera init Z
       const _fgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.80);  // close target
-      const _bgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.85);  // far target
+      const _bgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.49);  // far target
       // Rack-focus animation: 0 = bg, 1 = fg, eased over RACK_DURATION
       // seconds when the proxy state flips.
       const RACK_DURATION_SEC = 0.75;
