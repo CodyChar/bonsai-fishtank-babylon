@@ -840,12 +840,16 @@
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
       const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.27;  // bottom-third centre
       const forecastCards = [];
+      // Parent for all forecast cards — keeps the Inspector hierarchy
+      // tidy and lets them be moved/scaled as a unit.
+      const forecastGroup = new BJS.TransformNode('forecastGroup', scene);
       for (let i = 0; i < FORECAST_DAYS; i++) {
         const t = i / (FORECAST_DAYS - 1);
         const angle = -FORECAST_ARC * 0.5 + FORECAST_ARC * t;
         const card = BJS.MeshBuilder.CreatePlane('forecastCard' + i,
           { width: FORECAST_CARD_W, height: FORECAST_CARD_H, sideOrientation: BJS.Mesh.DOUBLESIDE },
           scene);
+        card.parent = forecastGroup;
         const px = Math.sin(angle) * FORECAST_RADIUS_X;
         const pz = FORECAST_CENTRE_Z + Math.cos(angle) * FORECAST_RADIUS_Z;
         card.position.set(px, FORECAST_CARD_Y, pz);
