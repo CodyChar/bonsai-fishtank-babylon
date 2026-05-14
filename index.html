@@ -2130,12 +2130,16 @@
       let proxState = 'far';
       let proxAnim  = 0;
       let proxBlurAnim = 0;     // separate ease for the blur effect — slower
-      // Focus distances (mm) — far is bound to the Focus dist slider,
-      // near to the new Near focus slider. The active pipeline focus
-      // distance lerps between them on proxAnim so the focus plane
-      // shifts together with the panel swap.
-      let farFocusMm  = 850;
-      let nearFocusMm = 800;
+      // Focus targets — two fixed world-space points (not camera-relative).
+      // Slider values are still in "metres from the default sit-back" so
+      // the HUD numbers stay intuitive, but they're translated to a
+      // world Z once and parked there. Each frame we measure the actual
+      // distance from the live camera to the chosen spot, so as the
+      // user moves their head the focus distance recomputes naturally
+      // — but the SPOT itself doesn't follow the camera.
+      const FOCUS_SEAT_Z  = 0.61;             // matches the FreeCamera init Z
+      const _fgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.80);  // close target
+      const _bgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.85);  // far target
       const nowCardEl = document.getElementById('now-card');
       const nowCardInner = nowCardEl.querySelector('.now-card-inner');
       // Make the now-card draggable — drop anywhere; position persists.
@@ -2216,7 +2220,10 @@
         nowCardInner.style.filter    = `blur(${blur}px)`;
         for (const { card } of forecastCards) card.visibility = proxAnim;
         if (pipeline && pipeline.depthOfField) {
-          pipeline.depthOfField.focusDistance = farFocusMm + (nearFocusMm - farFocusMm) * proxAnim;
+          // Distance from live camera to each fixed spot, then lerp.
+          const dBg = BJS.Vector3.Distance(camera.position, _bgPos);
+          const dFg = BJS.Vector3.Distance(camera.position, _fgPos);
+          pipeline.depthOfField.focusDistance = (dBg + (dFg - dBg) * proxAnim) * 1000;
         }
       });
 
@@ -2344,8 +2351,10 @@
         // (everything in focus); v=5 = max blur on a portrait lens.
         pipeline.depthOfField.fStop = Math.max(1.0, 8 - 1.4 * v);
       });
-      bindSlider('fx-focus',      'fx-focus-val',      v => { farFocusMm  = v * 1000; });
-      bindSlider('fx-focus-near', 'fx-focus-near-val', v => { nearFocusMm = v * 1000; });
+      // Slider value = distance from the default sit-back. The spot is
+      // placed at world Z = FOCUS_SEAT_Z - v and stays there as the camera moves.
+      bindSlider('fx-focus',      'fx-focus-val',      v => { _bgPos.z = FOCUS_SEAT_Z - v; });
+      bindSlider('fx-focus-near', 'fx-focus-near-val', v => { _fgPos.z = FOCUS_SEAT_Z - v; });
       bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
       bindSlider('fx-chrom', 'fx-chrom-val', v => { pipeline.chromaticAberration.aberrationAmount = v; pipeline.chromaticAberrationEnabled = v > 0; });
       bindSlider('fx-vign', 'fx-vign-val', v => {
