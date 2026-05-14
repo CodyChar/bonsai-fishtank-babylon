@@ -997,6 +997,13 @@
             if (data && data.length > 0 && count > 0) {
               const stride = SPLAT_STRIDE;
               console.info('[splat-dof] _splatsData usable:', data.length, 'floats, stride:', stride);
+              // Dump first 3 gaussians' raw bytes so we can see what's
+              // in each slot. log-space scales should be small negatives
+              // (~ -2 to -6); positions are small +/- floats; packed
+              // ints look like big/weird values.
+              console.info('[splat-dof] gaussian[0]:', Array.from(data.slice(0, 8)).map(v => v.toFixed(4)));
+              console.info('[splat-dof] gaussian[1]:', Array.from(data.slice(8, 16)).map(v => v.toFixed(4)));
+              console.info('[splat-dof] gaussian[2]:', Array.from(data.slice(16, 24)).map(v => v.toFixed(4)));
               if (stride >= 6) {
                 _splatPositionsBuf = posBuf;
                 _splatScalesBuf = data;
@@ -1007,16 +1014,20 @@
                   _splatOrigScales[i*3+1] = data[si + 4];
                   _splatOrigScales[i*3+2] = data[si + 5];
                 }
-                // Prefer the GPU-sync method called out for v9.x.
-                const refreshNames = ['_updateTextureFromData', '_updateData', 'updateData',
-                                      '_rebuild', 'applyTransforms'];
+                // Try MULTIPLE refresh methods each frame — one of them
+                // is the right "push CPU buffer to GPU" call for this
+                // Babylon version. Logged ones are kept; the rest get
+                // dropped on first failure.
+                const refreshNames = ['_updateTextureFromData', '_updateData',
+                                      '_rebuild', 'applyTransforms', '_updateTextures'];
+                const live = [];
                 for (const fn of refreshNames) {
                   if (typeof splatMesh[fn] === 'function') {
-                    _splatDoFRefresh = () => { try { splatMesh[fn](); } catch {} };
+                    live.push(() => { try { splatMesh[fn](); } catch {} });
                     console.info('[splat-dof] refresh hook ->', fn);
-                    break;
                   }
                 }
+                _splatDoFRefresh = () => { for (const f of live) f(); };
                 console.info('[splat-dof] per-gaussian DoF armed; backed up', count, 'scales');
               } else {
                 _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
@@ -2914,7 +2925,7 @@
               const focalWorldZ = camera.position.z - focusM;
               // Slider strength 0..1 from fStop.
               const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
-              const k = 40 * dofStrength;     // bloom rate per m^2
+              const k = 400 * dofStrength;    // exaggerated for visibility
               const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
               const orig = _splatOrigScales;
               for (let i = 0; i < count; i++) {
