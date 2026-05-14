@@ -2150,6 +2150,11 @@
       const FOCUS_SEAT_Z  = 0.61;             // matches the FreeCamera init Z
       const _fgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.80);  // close target
       const _bgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.85);  // far target
+      // Rack-focus animation: 0 = bg, 1 = fg, eased over RACK_DURATION
+      // seconds when the proxy state flips.
+      const RACK_DURATION_SEC = 0.75;
+      let focusT      = 0;
+      let focusTarget = 0;
       const nowCardEl = document.getElementById('now-card');
       const nowCardInner = nowCardEl.querySelector('.now-card-inner');
       // Make the now-card draggable — drop anywhere; position persists.
@@ -2230,17 +2235,26 @@
         nowCardInner.style.filter    = `blur(${blur}px)`;
         for (const { card } of forecastCards) card.visibility = proxAnim;
         if (pipeline && pipeline.depthOfField) {
-          // Distance from live camera to each fixed spot, then lerp.
+          // Time-based rack focus: focusT marches linearly toward
+          // focusTarget (0 = bg, 1 = fg) at 1/RACK_DURATION per second,
+          // then ease-in-out cubic so the racks have weight at both
+          // ends and feel cinematic.
+          focusTarget = proxState === 'close' ? 1 : 0;
+          const dt = engine.getDeltaTime() / 1000;
+          const step = dt / RACK_DURATION_SEC;
+          const diff = focusTarget - focusT;
+          focusT += Math.sign(diff) * Math.min(Math.abs(diff), step);
+          const e = focusT < 0.5
+            ? 4 * focusT * focusT * focusT
+            : 1 - Math.pow(-2 * focusT + 2, 3) / 2;
           const dBg = BJS.Vector3.Distance(camera.position, _bgPos);
           const dFg = BJS.Vector3.Distance(camera.position, _fgPos);
-          const focusM = dBg + (dFg - dBg) * proxAnim;
+          const focusM = dBg + (dFg - dBg) * e;
           pipeline.depthOfField.focusDistance = focusM * 1000;
-          // Physical-ish: with a fixed lens + aperture, DoF narrows as
-          // the subject distance shortens. Scale lensSize ∝ 1/focusM
-          // around a reference focus so leaning in genuinely shallows
-          // out the DoF and leaning back deepens it.
-          const REF_FOCUS_M  = 0.85;
-          const REF_LENS_PX  = 50;
+          // Physical-ish: lensSize ∝ 1/focusM so DoF naturally
+          // shallows when racked to a closer subject.
+          const REF_FOCUS_M = 0.85;
+          const REF_LENS_PX = 50;
           pipeline.depthOfField.lensSize =
             REF_LENS_PX * (REF_FOCUS_M / Math.max(0.10, focusM));
         }
