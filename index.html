@@ -491,22 +491,24 @@
       // -------------------- Lighting --------------------
       // Directional sun (casts shadows through the diorama), hemisphere
       // for global fill tinted to the sky direction, subtle warm rim.
+      // Dramatic key/fill/rim — big warm sun, almost-no hemisphere fill,
+      // strong cool rim to push the silhouette.
       const sun = new BJS.DirectionalLight('sun', new BJS.Vector3(-0.6, -1.2, -0.8).normalize(), scene);
-      sun.diffuse = new BJS.Color3(1.0, 0.88, 0.66);
-      sun.intensity = 2.4;
+      sun.diffuse = new BJS.Color3(1.0, 0.78, 0.45);   // warmer, more saturated
+      sun.intensity = 4.8;
       const hemi = new BJS.HemisphericLight('hemi', new BJS.Vector3(0, 1, 0), scene);
-      hemi.diffuse = new BJS.Color3(0.85, 0.82, 0.72);
-      hemi.groundColor = new BJS.Color3(0.18, 0.16, 0.13);
-      hemi.intensity = 0.55;
+      hemi.diffuse = new BJS.Color3(0.55, 0.62, 0.78);  // cool sky fill
+      hemi.groundColor = new BJS.Color3(0.05, 0.04, 0.03);  // near-black ground
+      hemi.intensity = 0.18;                            // tiny fill so shadows can read deep
       const rim = new BJS.DirectionalLight('rim', new BJS.Vector3(-0.2, -0.8, 1.0).normalize(), scene);
-      rim.diffuse = new BJS.Color3(1.0, 0.84, 0.6);
-      rim.intensity = 0.8;
+      rim.diffuse = new BJS.Color3(0.55, 0.75, 1.0);    // cool blue rim, contrasts the warm key
+      rim.intensity = 1.6;
 
       // Shadow generator for the sun only.
       const shadowGen = new BJS.ShadowGenerator(1024, sun);
       shadowGen.useBlurExponentialShadowMap = true;
       shadowGen.blurKernel = 16;
-      shadowGen.darkness = 0.25;
+      shadowGen.darkness = 0.05;            // deeper shadows for drama
       shadowGen.bias = 0.0005;
 
       // -------------------- Scene root / diorama --------------------
@@ -771,6 +773,14 @@
         for (const m of res.meshes) {
           if (!m.parent) m.parent = needleRoot;
         }
+        // Tag every imported mesh AND every transform node nested inside
+        // the needle so clicking any sub-part selects the whole model.
+        const tagSelection = (node) => {
+          node.metadata = node.metadata || {};
+          node.metadata.selectionRoot = needleRoot;
+          for (const child of (node.getChildren?.() || [])) tagSelection(child);
+        };
+        tagSelection(needleRoot);
         needleRoot.parent = treeGroup;
         // mesh93_primitive1 has inverted winding from the FBX export —
         // flip its faces so its normals point the right way.
@@ -1144,9 +1154,9 @@
       pipeline.imageProcessing.toneMappingEnabled = true;
       pipeline.imageProcessing.toneMappingType = BJS.ImageProcessingConfiguration.TONEMAPPING_ACES;
       pipeline.imageProcessing.exposure = 1.0;
-      pipeline.imageProcessing.contrast = 1.05;
+      pipeline.imageProcessing.contrast = 1.30;          // crunchier shadow/highlight roll-off
       pipeline.imageProcessing.vignetteEnabled = true;
-      pipeline.imageProcessing.vignetteWeight = 1.5;
+      pipeline.imageProcessing.vignetteWeight = 2.4;     // heavier darkening at the corners
       pipeline.imageProcessing.vignetteColor = new BJS.Color4(0, 0, 0, 0);
       pipeline.imageProcessing.vignetteBlendMode = BJS.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
       pipeline.imageProcessing.vignetteCameraFov = 0.35;
@@ -1762,7 +1772,15 @@
           if (utilHit && utilHit.hit) return;
           const hit = scene.pick(scene.pointerX, scene.pointerY,
             (m) => m.isPickable !== false && !GIZMO_EXCLUDE.has(m.name));
-          gizmoManager.attachToMesh(hit && hit.hit ? hit.pickedMesh : null);
+          const picked = (hit && hit.hit) ? hit.pickedMesh : null;
+          // Climb metadata.selectionRoot so grouped imports (e.g. the
+          // Space Needle GLB) select as one unit instead of one primitive.
+          const target = picked?.metadata?.selectionRoot || picked;
+          if (target && typeof gizmoManager.attachToNode === 'function') {
+            gizmoManager.attachToNode(target);
+          } else {
+            gizmoManager.attachToMesh(target);
+          }
         });
       }
       function applyGizmoState() {
