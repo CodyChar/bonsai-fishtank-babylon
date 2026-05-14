@@ -333,6 +333,7 @@
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
       <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="5" step="0.05" value="1.0"><code id="fx-dof-val">1.0</code></div>
       <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.2" max="2.0" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
+      <div class="slider-row"><span>Near focus (m)</span><input id="fx-focus-near" type="range" min="0.10" max="1.5" step="0.01" value="0.40"><code id="fx-focus-near-val">0.40</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="10"><code id="fx-chrom-val">10</code></div>
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.35"><code id="fx-vign-val">0.35</code></div>
@@ -2126,6 +2127,12 @@
       let proxState = 'far';
       let proxAnim  = 0;
       let proxBlurAnim = 0;     // separate ease for the blur effect — slower
+      // Focus distances (mm) — far is bound to the Focus dist slider,
+      // near to the new Near focus slider. The active pipeline focus
+      // distance lerps between them on proxAnim so the focus plane
+      // shifts together with the panel swap.
+      let farFocusMm  = 550;
+      let nearFocusMm = 400;
       const nowCardEl = document.getElementById('now-card');
       const nowCardInner = nowCardEl.querySelector('.now-card-inner');
       // Make the now-card draggable — drop anywhere; position persists.
@@ -2182,14 +2189,22 @@
         const thresh = (typeof trackingMode !== 'undefined' && trackingMode === 'phone')
           ? proxThresholdZPhone
           : proxThresholdZFace;
-        if (proxState === 'far'   && z < thresh) proxState = 'close';
-        else if (proxState === 'close' && z > thresh + PROX_HYSTERESIS) proxState = 'far';
+        // Only let the proximity state machine react once face tracking
+        // is actually running — otherwise the default camera Z (which
+        // is < thresh for the typical sit-back) would put us in 'close'
+        // mode on load and jerk the focus to near before the user has
+        // done anything.
+        if (tracking) {
+          if (proxState === 'far'   && z < thresh) proxState = 'close';
+          else if (proxState === 'close' && z > thresh + PROX_HYSTERESIS) proxState = 'far';
+        }
         const target = proxState === 'close' ? 1 : 0;
-        proxAnim     += (target - proxAnim)     * PROX_FADE_RATE;
-        proxBlurAnim += (target - proxBlurAnim) * PROX_FADE_RATE * 0.5; // ~2x slower
-        // Fade: 1 -> 0 as user gets close.
-        // Scale: 1.00 -> 1.10 (grows slightly as it disappears).
-        // Blur:  0 px -> 12 px on the inner element only.
+        // Fade-out (panel disappearing) eases at half the rate so the
+        // appear/disappear feels more deliberate. Fade-in stays snappy.
+        const fadingOut = target > proxAnim;
+        const fadeRate  = fadingOut ? PROX_FADE_RATE * 0.5 : PROX_FADE_RATE;
+        proxAnim     += (target - proxAnim)     * fadeRate;
+        proxBlurAnim += (target - proxBlurAnim) * fadeRate * 0.5;
         const fade  = 1 - proxAnim;
         const scale = 1 + 0.10 * proxAnim;
         const blur  = (12 * proxBlurAnim).toFixed(2);
@@ -2197,6 +2212,9 @@
         nowCardInner.style.transform = `scale(${scale.toFixed(3)})`;
         nowCardInner.style.filter    = `blur(${blur}px)`;
         for (const { card } of forecastCards) card.visibility = proxAnim;
+        if (pipeline && pipeline.depthOfField) {
+          pipeline.depthOfField.focusDistance = farFocusMm + (nearFocusMm - farFocusMm) * proxAnim;
+        }
       });
 
       function togglePreview() {
@@ -2316,7 +2334,8 @@
         // (everything in focus); v=5 = max blur on a portrait lens.
         pipeline.depthOfField.fStop = Math.max(1.0, 8 - 1.4 * v);
       });
-      bindSlider('fx-focus', 'fx-focus-val', v => { pipeline.depthOfField.focusDistance = v * 1000; });
+      bindSlider('fx-focus',      'fx-focus-val',      v => { farFocusMm  = v * 1000; });
+      bindSlider('fx-focus-near', 'fx-focus-near-val', v => { nearFocusMm = v * 1000; });
       bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
       bindSlider('fx-chrom', 'fx-chrom-val', v => { pipeline.chromaticAberration.aberrationAmount = v; pipeline.chromaticAberrationEnabled = v > 0; });
       bindSlider('fx-vign', 'fx-vign-val', v => {
