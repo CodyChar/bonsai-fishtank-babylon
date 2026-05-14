@@ -845,13 +845,12 @@
           // rest of the scene (cards, walls, needle) is untouched.
           // Inverted from the previous version — normal (0, 0, 1) means
           // pixels with z > d are kept and pixels with z < d are clipped.
-          // Original orientation that worked when hardcoded:
-          // Plane(0, 0, -1, +d) keeps z < d and clips z >= d. With d
-          // positive, everything in front of (toward the user) that
-          // plane is culled. Read from splatForwardClipM each frame
-          // so the slider drives the cut live.
+          // Flipped: Plane(0, 0, 1, -d) keeps pixels with z > d (the
+          // camera side) and clips pixels with z <= d (deeper into
+          // the scene). splatForwardClipM drives d live via the
+          // slider.
           splatMesh.onBeforeRenderObservable.add(() => {
-            scene.clipPlane = new BJS.Plane(0, 0, -1, splatForwardClipM);
+            scene.clipPlane = new BJS.Plane(0, 0, 1, -splatForwardClipM);
           });
           splatMesh.onAfterRenderObservable.add(() => {
             scene.clipPlane = null;
