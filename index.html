@@ -82,53 +82,54 @@
         position: fixed; top: 50%; right: 3.5vw;
         transform: translateY(-50%);
         z-index: 15;
-        width: min(24vw, 320px);
-        padding: 56px 30px 60px;
-        color: #fff;
-        font-family: system-ui, -apple-system, sans-serif;
-        background: linear-gradient(180deg,
-          rgba(255,255,255,0.30) 0%,
-          rgba(255,255,255,0.16) 50%,
-          rgba(255,255,255,0.22) 100%);
-        /* SVG displacement + blur + saturate = frosted acrylic that
-           actually refracts what's behind, not just blurs it. */
-        backdrop-filter: url(#acrylic-warp) blur(28px) saturate(175%);
-        -webkit-backdrop-filter: url(#acrylic-warp) blur(28px) saturate(175%);
-        border-radius: 28px;
-        /* Layered shadows do the heavy lifting for the "physical acrylic"
-           look: bright inset rim (light catching the front edge), a soft
-           inner halo (subsurface bounce), a darker hairline just inside
-           that for the cut-edge bevel, and an outer glow + drop shadow
-           so the slab reads as a solid object floating on the scene. */
-        box-shadow:
-          inset 0 0 0 1.2px rgba(255,255,255,0.55),
-          inset 0 1.5px 0 rgba(255,255,255,0.40),
-          inset 0 0 22px 6px rgba(255,255,255,0.10),
-          inset 0 0 0 3px rgba(255,255,255,0.06),
-          0 0 0 1px rgba(255,255,255,0.10),
-          0 22px 60px rgba(0,0,0,0.45),
-          0 6px 18px rgba(0,0,0,0.30);
-        transition: opacity .23s ease;
         pointer-events: auto;
         cursor: grab;
         user-select: none;
         touch-action: none;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.55);
-        isolation: isolate;   /* keep pseudo-element rim crisp over backdrop */
       }
-      /* Brighter optical highlight along the top-left edge — fakes the
-         specular catch on the bevelled corner of a physical pane. */
-      #now-card::before {
+      #now-card.dragging { cursor: grabbing; }
+      /* All visual styling lives on .now-card-inner so the outer is
+         free to be repositioned by drag while we animate opacity /
+         scale / blur on the inner. */
+      #now-card .now-card-inner {
+        position: relative;
+        width: min(24vw, 320px);
+        padding: 56px 30px 60px;
+        color: #fff;
+        font-family: system-ui, -apple-system, sans-serif;
+        /* Darker glass — black tint takes over the middle so the panel
+           reads more "device pane" than "white sheet". */
+        background: linear-gradient(180deg,
+          rgba(255,255,255,0.18) 0%,
+          rgba(0,0,0,0.34) 50%,
+          rgba(0,0,0,0.28) 100%);
+        backdrop-filter: url(#acrylic-warp) blur(28px) saturate(160%);
+        -webkit-backdrop-filter: url(#acrylic-warp) blur(28px) saturate(160%);
+        border-radius: 28px;
+        box-shadow:
+          inset 0 0 0 1.2px rgba(255,255,255,0.45),
+          inset 0 1.5px 0 rgba(255,255,255,0.32),
+          inset 0 0 22px 6px rgba(0,0,0,0.18),
+          inset 0 0 0 3px rgba(255,255,255,0.05),
+          0 0 0 1px rgba(255,255,255,0.10),
+          0 22px 60px rgba(0,0,0,0.55),
+          0 6px 18px rgba(0,0,0,0.40);
+        text-shadow: 0 1px 3px rgba(0,0,0,0.65);
+        isolation: isolate;
+        transform-origin: center;
+        will-change: transform, filter, opacity;
+      }
+      /* Specular highlight on the top-left bevel. */
+      #now-card .now-card-inner::before {
         content: '';
         position: absolute; inset: 0;
         border-radius: inherit;
         pointer-events: none;
         background:
-          radial-gradient(120% 80% at 18% 0%, rgba(255,255,255,0.28), transparent 55%),
-          radial-gradient(100% 60% at 80% 100%, rgba(255,255,255,0.12), transparent 60%);
+          radial-gradient(120% 80% at 18% 0%, rgba(255,255,255,0.26), transparent 55%),
+          radial-gradient(100% 60% at 80% 100%, rgba(255,255,255,0.10), transparent 60%);
         mix-blend-mode: screen;
       }
-      #now-card.dragging { cursor: grabbing; transition: none; }
       #now-card .now-loc  { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .88; margin-bottom: 16px; font-weight: 500; }
       #now-card .now-day  { font-size: 28px; font-weight: 600; line-height: 1.1; }
       #now-card .now-date { font-size: 15px; opacity: .82; margin-top: 6px; margin-bottom: 36px; }
@@ -255,12 +256,14 @@
     </button>
 
     <div id="now-card" aria-live="polite">
-      <div class="now-loc">Snohomish · WA</div>
-      <div class="now-day">Today</div>
-      <div class="now-date">—</div>
-      <div class="now-temp">—</div>
-      <div class="now-cond">Loading…</div>
-      <div class="now-hilo"><span>H —</span><span>L —</span></div>
+      <div class="now-card-inner">
+        <div class="now-loc">Snohomish · WA</div>
+        <div class="now-day">Today</div>
+        <div class="now-date">—</div>
+        <div class="now-temp">—</div>
+        <div class="now-cond">Loading…</div>
+        <div class="now-hilo"><span>H —</span><span>L —</span></div>
+      </div>
     </div>
 
     <div id="author-bar">
@@ -2060,6 +2063,7 @@
       let farFocusMm  = 550;
       let nearFocusMm = 200;
       const nowCardEl = document.getElementById('now-card');
+      const nowCardInner = nowCardEl.querySelector('.now-card-inner');
       // Make the now-card draggable — drop anywhere; position persists.
       (function makeNowCardDraggable(el) {
         const NOW_POS_KEY = 'bonsaiNowCardPos';
@@ -2118,7 +2122,15 @@
         else if (proxState === 'close' && z > thresh + PROX_HYSTERESIS) proxState = 'far';
         const target = proxState === 'close' ? 1 : 0;
         proxAnim += (target - proxAnim) * PROX_FADE_RATE;
-        nowCardEl.style.opacity = (1 - proxAnim).toFixed(3);
+        // Fade: 1 -> 0 as user gets close.
+        // Scale: 1.00 -> 1.10 (grows slightly as it disappears).
+        // Blur:  0 px -> 12 px on the inner element only.
+        const fade  = 1 - proxAnim;
+        const scale = 1 + 0.10 * proxAnim;
+        const blur  = (12 * proxAnim).toFixed(2);
+        nowCardInner.style.opacity   = fade.toFixed(3);
+        nowCardInner.style.transform = `scale(${scale.toFixed(3)})`;
+        nowCardInner.style.filter    = `blur(${blur}px)`;
         for (const { card } of forecastCards) card.visibility = proxAnim;
         if (pipeline && pipeline.depthOfField) {
           pipeline.depthOfField.focusDistance = farFocusMm + (nearFocusMm - farFocusMm) * proxAnim;
