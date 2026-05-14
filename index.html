@@ -742,6 +742,14 @@
         splatRoot = new BJS.TransformNode('splatRoot', scene);
         splatMesh.parent = splatRoot;
         splatRoot.parent = treeGroup;
+        // The splat is a particle-style cloud; its shader writes
+        // per-gaussian depth which intermittently wins the transparent
+        // sort against alpha-blended meshes behind it (the forecast
+        // cards). Treating it like a true 3D solid creates random
+        // occlusion. Turn off depth write so the splat composites over
+        // the depth buffer instead of punching holes in it — cards then
+        // depth-test against the deterministic scene geometry only.
+        if (splatMesh.material) splatMesh.material.disableDepthWrite = true;
         // Normalise bbox to 0.3 m longest edge, centre at origin.
         splatMesh.computeWorldMatrix(true);
         const bi = splatMesh.getBoundingInfo();
@@ -861,15 +869,6 @@
         card.material = mat;
         forecastCards.push({ card, tex });
       }
-      // Move the cards into their own rendering group with a depth /
-      // stencil clear before drawing. The Gaussian splat's shader
-      // writes depth in ways that intermittently win the transparent
-      // sort and occluded the cards from certain angles. With a fresh
-      // depth buffer for group 1, the cards reliably render at every
-      // angle — they'll just composite over the splat where they
-      // overlap, which is the trade-off for stable visibility.
-      scene.setRenderingAutoClearDepthStencil(1, true, true, true);
-      for (const { card } of forecastCards) card.renderingGroupId = 1;
       function drawCloud(ctx, cx, cy, r) {
         ctx.beginPath();
         ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
