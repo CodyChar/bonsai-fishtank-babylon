@@ -861,6 +861,15 @@
         card.material = mat;
         forecastCards.push({ card, tex });
       }
+      // Move the cards into their own rendering group with a depth /
+      // stencil clear before drawing. The Gaussian splat's shader
+      // writes depth in ways that intermittently win the transparent
+      // sort and occluded the cards from certain angles. With a fresh
+      // depth buffer for group 1, the cards reliably render at every
+      // angle — they'll just composite over the splat where they
+      // overlap, which is the trade-off for stable visibility.
+      scene.setRenderingAutoClearDepthStencil(1, true, true, true);
+      for (const { card } of forecastCards) card.renderingGroupId = 1;
       function drawCloud(ctx, cx, cy, r) {
         ctx.beginPath();
         ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
