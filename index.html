@@ -765,9 +765,10 @@
           splatMesh = m;
           splatRoot = new BJS.TransformNode('splatRoot', scene);
           splatMesh.parent = splatRoot;
-          splatRoot.parent = treeGroup;
+          // NB: splatRoot stays at scene root for the auto-fit so the
+          // bbox math isn't fighting treeGroup/diorama scales. Parent
+          // it to treeGroup only after the centering is baked in.
           if (splatMesh.material) splatMesh.material.disableDepthWrite = true;
-          // Auto-fit bbox to 0.3 m longest edge.
           splatMesh.computeWorldMatrix(true);
           const bi = splatMesh.getBoundingInfo();
           const bmin = bi.boundingBox.minimumWorld;
@@ -780,6 +781,7 @@
             const centre = bmax.add(bmin).scale(0.5);
             splatRoot.position.copyFrom(centre.scale(-s));
           }
+          splatRoot.parent = treeGroup;   // attach after auto-fit
           // Per-splat clip plane: only this mesh sees the plane, so the
           // rest of the scene (cards, walls, needle) is untouched.
           // Plane equation: -z + d = 0, keeps pixels where z < d.
@@ -821,7 +823,9 @@
           for (const child of (node.getChildren?.() || [])) tagSelection(child);
         };
         tagSelection(needleRoot);
-        needleRoot.parent = treeGroup;
+        // Auto-fit happens while needleRoot is still at scene root,
+        // matching the splat approach — the bbox math is wrong if the
+        // parent chain already has non-identity scaling.
         // mesh93_primitive1 has inverted winding from the FBX export —
         // flip its faces so its normals point the right way.
         const flip = res.meshes.find(m => m.name === 'mesh93_primitive1');
@@ -845,6 +849,7 @@
           const centre = max.add(min).scale(0.5);
           needleRoot.position.copyFrom(centre.scale(-s));
         }
+        needleRoot.parent = treeGroup;   // attach after auto-fit
         console.info('[needle] loaded in', parseMs, 'ms, bbox',
           size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
         if (typeof restoreSceneState === 'function') restoreSceneState();
