@@ -1102,9 +1102,8 @@
       // splat is the visible focal point. The async bonsai GLB is also
       // hidden once it finishes loading. Re-enable any of these in the
       // Inspector if you want them back.
-      sun.setEnabled(false);
-      hemi.setEnabled(false);
-      rim.setEnabled(false);
+      // Lights re-enabled (except windowLight). windowPane stays off
+      // since its geometry would float in space without the window.
       if (windowLight) windowLight.setEnabled(false);
       if (windowPane) windowPane.setEnabled(false);
       pedestal.setEnabled(false);
