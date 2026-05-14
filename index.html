@@ -772,6 +772,13 @@
           if (!m.parent) m.parent = needleRoot;
         }
         needleRoot.parent = treeGroup;
+        // mesh93_primitive1 has inverted winding from the FBX export —
+        // flip its faces so its normals point the right way.
+        const flip = res.meshes.find(m => m.name === 'mesh93_primitive1');
+        if (flip) {
+          flip.flipFaces(true);
+          console.info('[needle] flipped faces on mesh93_primitive1');
+        }
         let min = new BJS.Vector3(Infinity, Infinity, Infinity);
         let max = new BJS.Vector3(-Infinity, -Infinity, -Infinity);
         for (const m of meshes) {
