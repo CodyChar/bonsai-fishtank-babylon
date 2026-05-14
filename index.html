@@ -975,12 +975,48 @@
               }
             } catch (e) { console.warn('material walk failed:', e.message); }
             console.groupEnd();
-            // Per-gaussian DoF disabled — w wasn't opacity on this build
-            // and modifying _splatPositions blanked the splat. Sticking
-            // with the depth-proxy fake DoF (created earlier) until
-            // Babylon exposes a real per-gaussian hook.
-            _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
-            _splatDoFRefresh = null;
+            // Per-gaussian DoF via splatsData (Babylon 8+ exposes this
+            // Float32Array view). Layout per the SPZ format with SH
+            // degree 0: (px, py, pz, sx, sy, sz, qx, qy, qz, qw, op,
+            // r, g, b) = 14 floats per gaussian. Scales (sx, sy, sz)
+            // are stored in log-space, so per-frame DoF adds log(blur)
+            // rather than multiplying.
+            const data = splatMesh.splatsData;
+            const posBuf = splatMesh._splatPositions;
+            const count = posBuf ? (posBuf.length / 4) | 0 : 0;
+            if (data && data.length > 0 && count > 0) {
+              const stride = (data.length / count) | 0;
+              console.info('[splat-dof] splatsData found:', data.length, 'floats; count:', count, 'stride:', stride);
+              if (stride >= 6) {
+                _splatPositionsBuf = posBuf;
+                _splatScalesBuf = data;        // alias
+                _splatOrigScales = new Float32Array(count * 3);
+                for (let i = 0; i < count; i++) {
+                  const si = i * stride;
+                  _splatOrigScales[i*3+0] = data[si + 3];
+                  _splatOrigScales[i*3+1] = data[si + 4];
+                  _splatOrigScales[i*3+2] = data[si + 5];
+                }
+                const refreshNames = ['updateData', '_rebuild', 'applyTransforms',
+                                      '_buildBuffers', '_updateData', 'refreshBoundingInfo'];
+                for (const fn of refreshNames) {
+                  if (typeof splatMesh[fn] === 'function') {
+                    _splatDoFRefresh = () => { try { splatMesh[fn](); } catch {} };
+                    console.info('[splat-dof] refresh hook ->', fn);
+                    break;
+                  }
+                }
+                console.info('[splat-dof] per-gaussian DoF armed; backed up', count, 'scales');
+              } else {
+                _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
+                _splatDoFRefresh = null;
+                console.warn('[splat-dof] splatsData stride too small:', stride);
+              }
+            } else {
+              _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
+              _splatDoFRefresh = null;
+              console.warn('[splat-dof] splatsData not available on this build');
+            }
           }
           if (typeof restoreSceneState === 'function') restoreSceneState();
         }).catch(err => console.warn('[splat] load failed —', err.message || err));
@@ -2854,7 +2890,34 @@
           // value always wins, regardless of any internal cache or
           // observable re-applying older values.
           pipeline.depthOfField.focalLength = userFocalLength;
-          // Per-gaussian splat DoF removed — see splat loader comment.
+          // Per-gaussian splat DoF via splatsData log-space scale offsets.
+          if (_splatDoFActive && _splatPositionsBuf && _splatScalesBuf && _splatOrigScales && splatMesh) {
+            const data = _splatScalesBuf;
+            const pos = _splatPositionsBuf;
+            const count = _splatOrigScales.length / 3 | 0;
+            const stride = (data.length / count) | 0;
+            if (stride >= 6 && count > 0) {
+              splatMesh.computeWorldMatrix(true);
+              const wm = splatMesh.getWorldMatrix();
+              const focalWorldZ = camera.position.z - focusM;
+              // Slider strength 0..1 from fStop.
+              const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
+              const k = 40 * dofStrength;     // bloom rate per m^2
+              const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
+              const orig = _splatOrigScales;
+              for (let i = 0; i < count; i++) {
+                const i4 = i * 4;
+                const worldZ = m02 * pos[i4] + m06 * pos[i4+1] + m10 * pos[i4+2] + m14;
+                const d = worldZ - focalWorldZ;
+                const logBlur = Math.log(1 + k * d * d);
+                const si = i * stride;
+                data[si + 3] = orig[i*3+0] + logBlur;
+                data[si + 4] = orig[i*3+1] + logBlur;
+                data[si + 5] = orig[i*3+2] + logBlur;
+              }
+              if (_splatDoFRefresh) _splatDoFRefresh();
+            }
+          }
         }
       });
 
@@ -3017,8 +3080,22 @@
         // Slider 0..50 -> fStop 16..0.5 linear. v=0 = pinhole (deep
         // DoF), v=50 = wide-open aperture (extreme blur).
         pipeline.depthOfField.fStop = Math.max(0.5, 16 - 0.31 * v);
-        // Per-gaussian DoF disabled; slider only drives the standard
-        // post-process DoF + the depth-proxy box on the splat.
+        // Engage per-gaussian splat DoF (via splatsData scales).
+        _splatDoFActive = v > 0;
+        // If turning off, restore each gaussian's original log-space
+        // scale slice so the splat snaps back.
+        if (v === 0 && _splatScalesBuf && _splatOrigScales && splatMesh) {
+          const data = _splatScalesBuf;
+          const count = _splatOrigScales.length / 3 | 0;
+          const stride = (data.length / count) | 0;
+          for (let i = 0; i < count; i++) {
+            const si = i * stride;
+            data[si + 3] = _splatOrigScales[i*3+0];
+            data[si + 4] = _splatOrigScales[i*3+1];
+            data[si + 5] = _splatOrigScales[i*3+2];
+          }
+          if (_splatDoFRefresh) try { _splatDoFRefresh(); } catch {}
+        }
       });
       bindSlider('fx-focal', 'fx-focal-val', (v, inp) => {
         userFocalLength = v;   // applied per-frame in the DoF observable
