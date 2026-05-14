@@ -761,6 +761,11 @@
       let _splatScalesBuf = null;
       let _splatDoFActive = false;
       let _splatDoFRefresh = null;   // function or null — re-upload hook
+      // EXPERIMENTAL — per-gaussian DoF tested via _splatsData but the
+      // available refresh methods (_updateData / _rebuild / _updateTextures)
+      // appear to corrupt / blank the splat when called per-frame with
+      // mutated buffers. Gated off until we find a non-destructive sync.
+      const ENABLE_PER_GAUSSIAN_DOF = false;
       // World-Z plane in front of the screen at which the splat is
       // sliced. Live-bound to the Splat clip slider. Default 5 cm.
       let splatForwardClipM = 0.05;
@@ -1014,20 +1019,11 @@
                   _splatOrigScales[i*3+1] = data[si + 4];
                   _splatOrigScales[i*3+2] = data[si + 5];
                 }
-                // _updateTextureFromData crashes when called with no
-                // args (expects texture handles), so it's excluded.
-                // Call the others — at least one should mark the splat
-                // texture dirty so the buffer re-uploads next frame.
-                const refreshNames = ['_updateData', '_rebuild',
-                                      'applyTransforms', '_updateTextures'];
-                const live = [];
-                for (const fn of refreshNames) {
-                  if (typeof splatMesh[fn] === 'function') {
-                    live.push(() => { try { splatMesh[fn](); } catch (e) { /* swallow */ } });
-                    console.info('[splat-dof] refresh hook ->', fn);
-                  }
-                }
-                _splatDoFRefresh = () => { for (const f of live) f(); };
+                // Refresh-hook discovery is left in place for future
+                // work, but the per-frame call is now gated by
+                // ENABLE_PER_GAUSSIAN_DOF — calling these per-frame
+                // corrupts the splat (renders black).
+                _splatDoFRefresh = null;
                 console.info('[splat-dof] per-gaussian DoF armed; backed up', count, 'scales');
               } else {
                 _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
@@ -2914,7 +2910,7 @@
           // observable re-applying older values.
           pipeline.depthOfField.focalLength = userFocalLength;
           // Per-gaussian splat DoF via splatsData log-space scale offsets.
-          if (_splatDoFActive && _splatPositionsBuf && _splatScalesBuf && _splatOrigScales && splatMesh) {
+          if (ENABLE_PER_GAUSSIAN_DOF && _splatDoFActive && _splatPositionsBuf && _splatScalesBuf && _splatOrigScales && splatMesh) {
             const data = _splatScalesBuf;
             const pos = _splatPositionsBuf;
             const count = _splatOrigScales.length / 3 | 0;
