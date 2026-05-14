@@ -2923,20 +2923,21 @@
               splatMesh.computeWorldMatrix(true);
               const wm = splatMesh.getWorldMatrix();
               const focalWorldZ = camera.position.z - focusM;
-              // Slider strength 0..1 from fStop.
               const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
-              const k = 400 * dofStrength;    // exaggerated for visibility
+              const k = 50 * dofStrength;   // scales are linear; tame multiplier
               const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
               const orig = _splatOrigScales;
               for (let i = 0; i < count; i++) {
                 const i4 = i * 4;
                 const worldZ = m02 * pos[i4] + m06 * pos[i4+1] + m10 * pos[i4+2] + m14;
                 const d = worldZ - focalWorldZ;
-                const logBlur = Math.log(1 + k * d * d);
+                // Linear scales: multiply by (1 + k * d²) to bloom
+                // out-of-focus gaussians.
+                const blur = 1 + k * d * d;
                 const si = i * stride;
-                data[si + 3] = orig[i*3+0] + logBlur;
-                data[si + 4] = orig[i*3+1] + logBlur;
-                data[si + 5] = orig[i*3+2] + logBlur;
+                data[si + 3] = orig[i*3+0] * blur;
+                data[si + 4] = orig[i*3+1] * blur;
+                data[si + 5] = orig[i*3+2] * blur;
               }
               if (_splatDoFRefresh) _splatDoFRefresh();
             }
