@@ -305,6 +305,13 @@
         <select id="camera-picker"></select>
       </div>
 
+      <div class="slider-row">
+        <span>Scene</span>
+        <select id="scene-preset">
+          <option value="space-needle-fbx" selected>Space Needle FBX</option>
+        </select>
+      </div>
+
       <h2>Frame</h2>
       <div class="slider-row"><span>Screen W (cm)</span><input id="screen-w" type="range" min="15" max="80" step="0.5" value="35.5"><code id="screen-w-val">35.5</code></div>
       <div class="slider-row"><span>Sit-back (cm)</span><input id="sit-back" type="range" min="20" max="120" step="1" value="61"><code id="sit-back-val">61</code></div>
@@ -2079,6 +2086,18 @@
       // Apply once for nodes that exist synchronously; the bonsai
       // import callback re-applies after bonsaiRoot is attached.
       restoreSceneState();
+
+      // Scene preset selector. Currently a single preset; future scenes
+      // would add entries to SCENE_PRESETS and a loader function that
+      // disposes the current content + builds the new one.
+      const SCENE_PRESETS = {
+        'space-needle-fbx': { label: 'Space Needle FBX' },
+      };
+      const scenePresetSelect = document.getElementById('scene-preset');
+      scenePresetSelect.addEventListener('change', () => {
+        const preset = SCENE_PRESETS[scenePresetSelect.value];
+        if (preset) toast(`Scene: ${preset.label}`);
+      });
 
       document.getElementById('save-btn').addEventListener('click', saveSceneState);
       document.getElementById('reset-btn').addEventListener('click', clearSceneState);
