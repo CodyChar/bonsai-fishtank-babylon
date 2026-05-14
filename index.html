@@ -331,6 +331,7 @@
       <div class="slider-row"><span>Face swap (cm)</span><input id="proxy-swap-face" type="range" min="40" max="100" step="1" value="75"><code id="proxy-swap-face-val">75</code></div>
       <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
       <div class="slider-row"><span>Splat size</span><input id="splat-scale" type="range" min="0.1" max="3.0" step="0.05" value="1.0"><code id="splat-scale-val">1.00</code></div>
+      <div class="slider-row"><span>Splat clip (cm)</span><input id="splat-clip" type="range" min="-30" max="30" step="0.5" value="5"><code id="splat-clip-val">5.0</code></div>
       <div class="slider-row"><span>Panel blur</span><input id="panel-blur" type="range" min="0" max="40" step="0.5" value="13"><code id="panel-blur-val">13</code></div>
       <div class="slider-row"><span>Panel grain</span><input id="panel-grain" type="range" min="0" max="0.5" step="0.01" value="0.13"><code id="panel-grain-val">0.13</code></div>
       <div class="slider-row"><span>Refraction</span><input id="panel-refract" type="range" min="0" max="20" step="0.5" value="6"><code id="panel-refract-val">6.0</code></div>
@@ -740,9 +741,9 @@
       let splatRoot = null;
       let splatMesh = null;
       let splatSizeScale = 1.0;   // live-bound to the Splat size slider
-      // World-Z plane in front of the screen at which everything past
-      // (toward the user) gets clipped. 2 inches forward = ~0.0508 m.
-      const SPLAT_FORWARD_CLIP_M = 0.0508;
+      // World-Z plane in front of the screen at which the splat is
+      // sliced. Live-bound to the Splat clip slider. Default 5 cm.
+      let splatForwardClipM = 0.05;
       // Apply the slider's per-gaussian scale to whichever property the
       // current Babylon build exposes for it. Falls back to a console
       // warning if none of the known names exist.
@@ -811,7 +812,7 @@
           // Inverted from the previous version — normal (0, 0, 1) means
           // pixels with z > d are kept and pixels with z < d are clipped.
           splatMesh.onBeforeRenderObservable.add(() => {
-            scene.clipPlane = new BJS.Plane(0, 0, 1, -SPLAT_FORWARD_CLIP_M);
+            scene.clipPlane = new BJS.Plane(0, 0, 1, -splatForwardClipM);
           });
           splatMesh.onAfterRenderObservable.add(() => {
             scene.clipPlane = null;
@@ -2490,6 +2491,9 @@
       bindSlider('splat-scale', 'splat-scale-val', v => {
         splatSizeScale = v;
         applySplatSize();
+      });
+      bindSlider('splat-clip', 'splat-clip-val', v => {
+        splatForwardClipM = v / 100;  // cm -> m
       });
       bindSlider('panel-blur', 'panel-blur-val', v => {
         nowCardInner.style.setProperty('--panel-blur', v + 'px');
