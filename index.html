@@ -2288,12 +2288,17 @@
           const dFg = BJS.Vector3.Distance(camera.position, _fgPos);
           const focusM = dBg + (dFg - dBg) * e;
           pipeline.depthOfField.focusDistance = focusM * 1000;
-          // Physical-ish: lensSize ∝ 1/focusM so DoF naturally
-          // shallows when racked to a closer subject.
-          const REF_FOCUS_M = 0.85;
-          const REF_LENS_PX = 50;
+          // Hold the perceived blur on the SCENE constant as the user
+          // dollies in/out. CoC ≈ lensSize · |D-F| / D for an object
+          // at distance D and focus at F. With F and the scene both
+          // fixed in world space, |D-F| is constant, so to keep CoC
+          // steady we scale lensSize ∝ D (camera-to-scene distance).
+          // Reference: default sit-back ≈ 0.71 m to the diorama.
+          const REF_SCENE_DIST = 0.71;
+          const REF_LENS_PX    = 50;
+          const camToScene = BJS.Vector3.Distance(camera.position, treeGroup.getAbsolutePosition());
           pipeline.depthOfField.lensSize =
-            REF_LENS_PX * (REF_FOCUS_M / Math.max(0.10, focusM));
+            REF_LENS_PX * (Math.max(0.10, camToScene) / REF_SCENE_DIST);
         }
       });
 
