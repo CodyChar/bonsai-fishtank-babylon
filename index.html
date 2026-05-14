@@ -962,31 +962,32 @@
               }
             } catch (e) { console.warn('material walk failed:', e.message); }
             console.groupEnd();
-            const posCandidates = ['splatPositions', '_splatPositions', 'positions', '_positions', 'splatPosition'];
-            const scaleCandidates = ['splatScales', '_splatScales', 'scales', '_scales', '_splatCovariances', 'splatScale', '_covariances'];
-            let pos = null, scl = null;
-            for (const k of posCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { pos = splatMesh[k]; break; }
-            for (const k of scaleCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { scl = splatMesh[k]; break; }
-            if (pos && scl) {
+            // Per-gaussian DoF via _splatPositions.w. _splatPositions is
+            // packed as (x, y, z, w) per gaussian; w most often holds
+            // opacity in splat formats. Back it up and modulate per
+            // frame by distance from the focal plane.
+            const pos = splatMesh._splatPositions;
+            if (pos && pos.length > 0) {
               _splatPositionsBuf = pos;
-              _splatScalesBuf   = scl;
-              _splatOrigScales  = new Float32Array(scl);
-              const refreshNames = ['updateData', 'applyTransforms', 'refreshBoundingInfo', 'rebuild',
-                                    '_packBuffers', 'updateSplats', 'updateBuffer', 'updateMesh', '_buildBuffers',
-                                    'updateSplatData', 'setSplats', '_updateBuffers'];
+              _splatScalesBuf = pos;  // alias so the per-frame guard passes
+              const count = (pos.length / 4) | 0;
+              _splatOrigScales = new Float32Array(count);
+              for (let i = 0; i < count; i++) _splatOrigScales[i] = pos[i*4 + 3];
+              const refreshNames = ['updateData', '_updateData', '_rebuild',
+                                    'updateDataAsync', 'refreshBoundingInfo'];
               for (const fn of refreshNames) {
                 if (typeof splatMesh[fn] === 'function') {
-                  _splatDoFRefresh = splatMesh[fn].bind(splatMesh);
-                  console.info('[splat] DoF refresh hook found ->', fn);
+                  _splatDoFRefresh = () => { try { splatMesh[fn](); } catch {} };
+                  console.info('[splat] DoF refresh hook ->', fn);
                   break;
                 }
               }
-              console.info('[splat] DoF: buffers ready — positions', pos.length, 'scales', scl.length,
-                'refresh', _splatDoFRefresh ? 'yes' : 'no');
+              console.info('[splat] DoF w-channel: backed up', count, 'opacities; refresh',
+                _splatDoFRefresh ? 'yes' : 'no');
             } else {
               _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
               _splatDoFRefresh = null;
-              console.warn('[splat] DoF: per-gaussian buffers not accessible — see diagnostics dump above');
+              console.warn('[splat] DoF: _splatPositions not accessible');
             }
           }
           if (typeof restoreSceneState === 'function') restoreSceneState();
@@ -2694,31 +2695,25 @@
           // value always wins, regardless of any internal cache or
           // observable re-applying older values.
           pipeline.depthOfField.focalLength = userFocalLength;
-          // Per-gaussian splat DoF: scale every gaussian by distance
-          // from the focal plane so out-of-focus splats spread / bloom
-          // and in-focus ones stay tight.
-          if (_splatDoFActive && _splatPositionsBuf && _splatScalesBuf && _splatOrigScales) {
+          // Per-gaussian splat DoF: fade out-of-focus gaussians by
+          // dropping their opacity (the w component of _splatPositions
+          // in this Babylon build's packing).
+          if (_splatDoFActive && _splatPositionsBuf && _splatOrigScales) {
             splatMesh.computeWorldMatrix(true);
             const wm = splatMesh.getWorldMatrix();
             const focalWorldZ = camera.position.z - focusM;
-            // 0..1 from DoF slider mapped to a quadratic strength.
-            // strength 0 = no per-gaussian effect, strength 1 = strong
-            // bloom for splats well outside focus.
-            const dofStrength = Math.max(0, Math.min(1, (12 - pipeline.depthOfField.fStop) / 11.5));
-            const k = 20 * dofStrength;
+            const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
+            const k = 40 * dofStrength;   // fade rate per metre squared
             const pos = _splatPositionsBuf;
-            const scl = _splatScalesBuf;
             const orig = _splatOrigScales;
-            const count = (pos.length / 3) | 0;
+            const count = (pos.length / 4) | 0;
             const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
             for (let i = 0; i < count; i++) {
-              const i3 = i * 3;
-              const worldZ = m02 * pos[i3] + m06 * pos[i3 + 1] + m10 * pos[i3 + 2] + m14;
+              const i4 = i * 4;
+              const worldZ = m02 * pos[i4] + m06 * pos[i4 + 1] + m10 * pos[i4 + 2] + m14;
               const d = worldZ - focalWorldZ;
-              const blur = 1 + k * d * d;
-              scl[i3]     = orig[i3]     * blur;
-              scl[i3 + 1] = orig[i3 + 1] * blur;
-              scl[i3 + 2] = orig[i3 + 2] * blur;
+              const fade = 1 / (1 + k * d * d);
+              pos[i4 + 3] = orig[i] * fade;
             }
             if (_splatDoFRefresh) {
               try { _splatDoFRefresh(); } catch (e) { /* swallow */ }
@@ -2881,10 +2876,12 @@
         pipeline.depthOfField.fStop = Math.max(0.5, 16 - 0.31 * v);
         // Engage per-gaussian splat DoF whenever the slider is > 0.
         _splatDoFActive = v > 0;
-        // If turning off, restore original scales so the splat snaps
-        // back to its original sharpness.
-        if (v === 0 && _splatScalesBuf && _splatOrigScales) {
-          _splatScalesBuf.set(_splatOrigScales);
+        // If turning off, restore each gaussian's original w (opacity)
+        // so the splat snaps back to its original look.
+        if (v === 0 && _splatPositionsBuf && _splatOrigScales) {
+          const pos = _splatPositionsBuf;
+          const count = _splatOrigScales.length;
+          for (let i = 0; i < count; i++) pos[i*4 + 3] = _splatOrigScales[i];
           if (_splatDoFRefresh) try { _splatDoFRefresh(); } catch {}
         }
       });
