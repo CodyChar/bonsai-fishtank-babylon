@@ -315,6 +315,7 @@
       <div class="slider-row"><span>Bloom</span><input id="fx-bloom" type="range" min="0" max="2" step="0.01" value="0.7"><code id="fx-bloom-val">0.70</code></div>
       <div class="slider-row"><span>DoF strength</span><input id="fx-dof" type="range" min="0" max="12" step="0.1" value="0.7"><code id="fx-dof-val">0.7</code></div>
       <div class="slider-row"><span>Focus dist (m)</span><input id="fx-focus" type="range" min="0.05" max="5.0" step="0.01" value="0.55"><code id="fx-focus-val">0.55</code></div>
+      <div class="slider-row"><span>Near focus (m)</span><input id="fx-focus-near" type="range" min="0.05" max="2.0" step="0.01" value="0.20"><code id="fx-focus-near-val">0.20</code></div>
       <div class="slider-row"><span>Grain</span><input id="fx-grain" type="range" min="0" max="30" step="0.5" value="8"><code id="fx-grain-val">8</code></div>
       <div class="slider-row"><span>Chromatic ab.</span><input id="fx-chrom" type="range" min="0" max="60" step="1" value="10"><code id="fx-chrom-val">10</code></div>
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.35"><code id="fx-vign-val">0.35</code></div>
@@ -2057,6 +2058,12 @@
       const PROX_FADE_RATE  = 0.18;       // ease per frame (50% snappier)
       let proxState = 'far';
       let proxAnim  = 0;
+      // Focus distances (mm) — far is the slider; near kicks in when the
+      // user leans close enough to trigger the swap. The actual
+      // pipeline.depthOfField.focusDistance is lerped between them by
+      // proxAnim so it tracks the same fade.
+      let farFocusMm  = 550;
+      let nearFocusMm = 200;
       const nowCardEl = document.getElementById('now-card');
       // Make the now-card draggable — drop anywhere; position persists.
       (function makeNowCardDraggable(el) {
@@ -2118,6 +2125,9 @@
         proxAnim += (target - proxAnim) * PROX_FADE_RATE;
         nowCardEl.style.opacity = (1 - proxAnim).toFixed(3);
         for (const { card } of forecastCards) card.visibility = proxAnim;
+        if (pipeline && pipeline.depthOfField) {
+          pipeline.depthOfField.focusDistance = farFocusMm + (nearFocusMm - farFocusMm) * proxAnim;
+        }
       });
 
       function togglePreview() {
@@ -2229,7 +2239,8 @@
         pipeline.depthOfFieldEnabled = v > 0;
         pipeline.depthOfField.fStop = Math.max(0.3, 12 - v);  // invert: high slider = strong blur = low fStop
       });
-      bindSlider('fx-focus', 'fx-focus-val', v => { pipeline.depthOfField.focusDistance = v * 1000; });
+      bindSlider('fx-focus', 'fx-focus-val', v => { farFocusMm = v * 1000; });
+      bindSlider('fx-focus-near', 'fx-focus-near-val', v => { nearFocusMm = v * 1000; });
       bindSlider('fx-grain', 'fx-grain-val', v => { pipeline.grain.intensity = v; pipeline.grainEnabled = v > 0; });
       bindSlider('fx-chrom', 'fx-chrom-val', v => { pipeline.chromaticAberration.aberrationAmount = v; pipeline.chromaticAberrationEnabled = v > 0; });
       bindSlider('fx-vign', 'fx-vign-val', v => {
