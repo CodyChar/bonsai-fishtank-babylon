@@ -997,13 +997,13 @@
             if (data && data.length > 0 && count > 0) {
               const stride = SPLAT_STRIDE;
               console.info('[splat-dof] _splatsData usable:', data.length, 'floats, stride:', stride);
-              // Dump first 3 gaussians' raw bytes so we can see what's
-              // in each slot. log-space scales should be small negatives
-              // (~ -2 to -6); positions are small +/- floats; packed
-              // ints look like big/weird values.
-              console.info('[splat-dof] gaussian[0]:', Array.from(data.slice(0, 8)).map(v => v.toFixed(4)));
-              console.info('[splat-dof] gaussian[1]:', Array.from(data.slice(8, 16)).map(v => v.toFixed(4)));
-              console.info('[splat-dof] gaussian[2]:', Array.from(data.slice(16, 24)).map(v => v.toFixed(4)));
+              // Dump first 3 gaussians' raw bytes (inline so the
+              // console doesn't collapse them). Log-space scales should
+              // be small negatives (~ -2 to -6); positions are small
+              // +/- floats; packed ints look like huge/weird values.
+              console.info('[splat-dof] gaussian[0]: ' + Array.from(data.slice(0, 8)).map(v => v.toFixed(4)).join(', '));
+              console.info('[splat-dof] gaussian[1]: ' + Array.from(data.slice(8, 16)).map(v => v.toFixed(4)).join(', '));
+              console.info('[splat-dof] gaussian[2]: ' + Array.from(data.slice(16, 24)).map(v => v.toFixed(4)).join(', '));
               if (stride >= 6) {
                 _splatPositionsBuf = posBuf;
                 _splatScalesBuf = data;
@@ -1014,16 +1014,16 @@
                   _splatOrigScales[i*3+1] = data[si + 4];
                   _splatOrigScales[i*3+2] = data[si + 5];
                 }
-                // Try MULTIPLE refresh methods each frame — one of them
-                // is the right "push CPU buffer to GPU" call for this
-                // Babylon version. Logged ones are kept; the rest get
-                // dropped on first failure.
-                const refreshNames = ['_updateTextureFromData', '_updateData',
-                                      '_rebuild', 'applyTransforms', '_updateTextures'];
+                // _updateTextureFromData crashes when called with no
+                // args (expects texture handles), so it's excluded.
+                // Call the others — at least one should mark the splat
+                // texture dirty so the buffer re-uploads next frame.
+                const refreshNames = ['_updateData', '_rebuild',
+                                      'applyTransforms', '_updateTextures'];
                 const live = [];
                 for (const fn of refreshNames) {
                   if (typeof splatMesh[fn] === 'function') {
-                    live.push(() => { try { splatMesh[fn](); } catch {} });
+                    live.push(() => { try { splatMesh[fn](); } catch (e) { /* swallow */ } });
                     console.info('[splat-dof] refresh hook ->', fn);
                   }
                 }
