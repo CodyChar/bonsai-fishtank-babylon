@@ -981,19 +981,21 @@
             console.groupEnd();
             // Per-gaussian DoF via Babylon 9.7's private _splatsData
             // buffer (requires keepInRam=true on the mesh, which we now
-            // pass in the constructor). Probe for it + getCapacity().
+            // pass in the constructor). Stride is FIXED 8 floats per
+            // gaussian (= 32 bytes) regardless of what getCapacity
+            // reports (capacity is padded-up; the actual stored count
+            // is data.length / 8, matching SPZ numPoints).
+            const SPLAT_STRIDE = 8;
             const raw = splatMesh._splatsData;
-            const count = typeof splatMesh.getCapacity === 'function'
-              ? splatMesh.getCapacity()
-              : (splatMesh._splatPositions ? (splatMesh._splatPositions.length / 4) | 0 : 0);
             const data = raw
               ? (raw instanceof Float32Array ? raw : new Float32Array(raw.buffer || raw))
               : null;
+            const count = data ? Math.floor(data.length / SPLAT_STRIDE) : 0;
             const posBuf = splatMesh._splatPositions;
             console.info('[splat-dof] _splatsData =', raw && (raw.constructor?.name + ' ' + (raw.byteLength ?? raw.length)),
-              'getCapacity:', count, 'covTex:', splatMesh._covariancesTexture && splatMesh._covariancesTexture.constructor?.name);
+              'count:', count, 'capacity:', splatMesh.getCapacity?.(), 'covTex:', splatMesh._covariancesTexture && splatMesh._covariancesTexture.constructor?.name);
             if (data && data.length > 0 && count > 0) {
-              const stride = (data.length / count) | 0;
+              const stride = SPLAT_STRIDE;
               console.info('[splat-dof] _splatsData usable:', data.length, 'floats, stride:', stride);
               if (stride >= 6) {
                 _splatPositionsBuf = posBuf;
@@ -2905,7 +2907,7 @@
             const data = _splatScalesBuf;
             const pos = _splatPositionsBuf;
             const count = _splatOrigScales.length / 3 | 0;
-            const stride = (data.length / count) | 0;
+            const stride = 8;   // FIXED per the SPZ layout in Babylon 9.7
             if (stride >= 6 && count > 0) {
               splatMesh.computeWorldMatrix(true);
               const wm = splatMesh.getWorldMatrix();
@@ -3097,7 +3099,7 @@
         if (v === 0 && _splatScalesBuf && _splatOrigScales && splatMesh) {
           const data = _splatScalesBuf;
           const count = _splatOrigScales.length / 3 | 0;
-          const stride = (data.length / count) | 0;
+          const stride = 8;
           for (let i = 0; i < count; i++) {
             const si = i * stride;
             data[si + 3] = _splatOrigScales[i*3+0];
