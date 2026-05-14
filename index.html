@@ -902,6 +902,9 @@
           if (glbRoot) glbRoot.setEnabled(false);
           console.info('[splat]', url, 'ready, bbox',
             size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+          // Expose the active splat mesh as window.__splat for
+          // interactive poking from DevTools (e.g. dir(__splat.material)).
+          window.__splat = splatMesh;
           // Diagnostic dump so we can see what this Babylon build
           // actually exposes on the splat mesh.
           {
@@ -933,6 +936,31 @@
                 console.log('vertex buffer kinds:', geom.getVerticesDataKinds?.());
               }
             } catch {}
+            // Walk the material for texture references — splat scales
+            // probably live in one of these.
+            try {
+              const mat = splatMesh.material;
+              if (mat) {
+                console.log('material class:', mat.getClassName?.() ?? '?');
+                const matTextures = [];
+                const matBuffers = [];
+                const seenM = new Set();
+                for (let obj = mat; obj && obj !== Object.prototype; obj = Object.getPrototypeOf(obj)) {
+                  for (const k of Object.getOwnPropertyNames(obj)) {
+                    if (seenM.has(k)) continue; seenM.add(k);
+                    let v; try { v = mat[k]; } catch { continue; }
+                    if (!v) continue;
+                    if (v.getClassName && typeof v.getInternalTexture === 'function') {
+                      matTextures.push(`${k}: ${v.getClassName()} ${v.getSize ? v.getSize().width + 'x' + v.getSize().height : ''}`);
+                    } else if (v.constructor && /Float|Uint|Int/.test(v.constructor.name) && typeof v.length === 'number' && v.length > 0) {
+                      matBuffers.push(`${k}: ${v.constructor.name}(${v.length})`);
+                    }
+                  }
+                }
+                console.log('material textures:', matTextures.length ? matTextures : '(none)');
+                console.log('material buffers:', matBuffers.length ? matBuffers : '(none)');
+              }
+            } catch (e) { console.warn('material walk failed:', e.message); }
             console.groupEnd();
             const posCandidates = ['splatPositions', '_splatPositions', 'positions', '_positions', 'splatPosition'];
             const scaleCandidates = ['splatScales', '_splatScales', 'scales', '_scales', '_splatCovariances', 'splatScale', '_covariances'];
