@@ -811,11 +811,19 @@
           // rest of the scene (cards, walls, needle) is untouched.
           // Inverted from the previous version — normal (0, 0, 1) means
           // pixels with z > d are kept and pixels with z < d are clipped.
+          // Try every clip-plane channel Babylon exposes so the splat
+          // shader has a chance to pick up the cut. Different Babylon
+          // builds wire splat materials through different paths.
           splatMesh.onBeforeRenderObservable.add(() => {
-            scene.clipPlane = new BJS.Plane(0, 0, 1, -splatForwardClipM);
+            const plane = new BJS.Plane(0, 0, 1, -splatForwardClipM);
+            scene.clipPlane = plane;
+            if (splatMesh.material) splatMesh.material.clipPlane = plane;
+            splatMesh.clipPlane = plane;
           });
           splatMesh.onAfterRenderObservable.add(() => {
             scene.clipPlane = null;
+            if (splatMesh.material) splatMesh.material.clipPlane = null;
+            splatMesh.clipPlane = null;
           });
           // Hide the GLB tree so the splat owns the scene centre.
           const glbRoot = scene.getNodeByName('bonsaiRoot');
@@ -876,6 +884,10 @@
         console.info('[needle] loaded in', parseMs, 'ms, bbox',
           size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
         if (typeof restoreSceneState === 'function') restoreSceneState();
+        // Re-apply the current preset's visibility now that the needle
+        // exists — otherwise it would always be visible at boot until
+        // the user manually changed scenes.
+        if (typeof window.__applyCurrentPreset === 'function') window.__applyCurrentPreset();
       }).catch(err => console.warn('[needle] load failed —', err.message || err));
 
       // -------------------- 10-day forecast (curved 3D strip) --------------------
@@ -2139,8 +2151,28 @@
 
       // Scene preset selector. Each preset defines which splat to load
       // into the diorama; the needle / cards / walls stay put.
+      function setWallsVisible(v) {
+        for (const w of shoeboxWalls) w.setEnabled(v);
+      }
+      function setMainLightsVisible(v) {
+        sun.setEnabled(v);
+        hemi.setEnabled(v);
+        rim.setEnabled(v);
+      }
+      function setNeedleVisible(v) {
+        const nr = scene.getNodeByName('needleRoot');
+        if (nr) nr.setEnabled(v);
+      }
       const SCENE_PRESETS = {
-        'space-needle-fbx': { label: 'Space Needle FBX', splatUrl: 'tree.spz' },
+        'space-needle-fbx': {
+          label: 'Space Needle FBX',
+          splatUrl: 'tree.spz',
+          apply: () => {
+            setWallsVisible(true);
+            setMainLightsVisible(true);
+            setNeedleVisible(true);
+          },
+        },
         'seattle-splat-1':  {
           label: 'Seattle Splat 1',
           splatUrl: 'seattle-splat.spz',
@@ -2149,8 +2181,20 @@
           rootScaling:  new BJS.Vector3(0.11, 0.11, 0.11),
           meshRotation: new BJS.Vector3(0, 0, 0.68),
           meshScaling:  new BJS.Vector3(0.23, 0.23, 0.28),
+          apply: () => {
+            setWallsVisible(false);   // hide all shoebox walls + ceiling + floor
+            setMainLightsVisible(false);
+            setNeedleVisible(false);
+          },
         },
       };
+      let currentPresetId = 'space-needle-fbx';
+      function applyCurrentPreset() {
+        const preset = SCENE_PRESETS[currentPresetId];
+        if (preset && preset.apply) preset.apply();
+      }
+      // Expose so the needle loader can re-apply once its mesh exists.
+      window.__applyCurrentPreset = applyCurrentPreset;
       const scenePresetSelect = document.getElementById('scene-preset');
       const SCENE_PRESET_KEY = 'bonsaiScenePreset';
       // Restore the persisted scene preset before wiring the change
@@ -2159,16 +2203,20 @@
         const savedPreset = localStorage.getItem(SCENE_PRESET_KEY);
         if (savedPreset && SCENE_PRESETS[savedPreset]) {
           scenePresetSelect.value = savedPreset;
+          currentPresetId = savedPreset;
           const preset = SCENE_PRESETS[savedPreset];
           if (preset.splatUrl) loadSplat(preset.splatUrl, preset);
         }
       } catch {}
+      applyCurrentPreset();
       scenePresetSelect.addEventListener('change', () => {
         const preset = SCENE_PRESETS[scenePresetSelect.value];
         if (!preset) return;
+        currentPresetId = scenePresetSelect.value;
         try { localStorage.setItem(SCENE_PRESET_KEY, scenePresetSelect.value); } catch {}
         toast(`Scene: ${preset.label}`);
         if (preset.splatUrl) loadSplat(preset.splatUrl, preset);
+        applyCurrentPreset();
       });
 
       document.getElementById('save-btn').addEventListener('click', saveSceneState);
