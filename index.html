@@ -332,6 +332,9 @@
       <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
       <div class="slider-row"><span>Splat size</span><input id="splat-scale" type="range" min="0.1" max="3.0" step="0.05" value="1.0"><code id="splat-scale-val">1.00</code></div>
       <div class="slider-row"><span>Splat clip (cm)</span><input id="splat-clip" type="range" min="-30" max="100" step="0.5" value="5"><code id="splat-clip-val">5.0</code></div>
+      <div class="slider-row"><span>Splat blur</span><input id="splat-blur" type="range" min="0" max="20" step="0.5" value="0"><code id="splat-blur-val">0</code></div>
+      <div class="slider-row"><span>Blur near (m)</span><input id="splat-blur-near" type="range" min="0.05" max="5.0" step="0.05" value="0.30"><code id="splat-blur-near-val">0.30</code></div>
+      <div class="slider-row"><span>Blur far (m)</span><input id="splat-blur-far" type="range" min="0.10" max="20.0" step="0.05" value="3.00"><code id="splat-blur-far-val">3.00</code></div>
       <div class="slider-row"><span>Panel blur</span><input id="panel-blur" type="range" min="0" max="40" step="0.5" value="13"><code id="panel-blur-val">13</code></div>
       <div class="slider-row"><span>Panel grain</span><input id="panel-grain" type="range" min="0" max="0.5" step="0.01" value="0.13"><code id="panel-grain-val">0.13</code></div>
       <div class="slider-row"><span>Refraction</span><input id="panel-refract" type="range" min="0" max="20" step="0.5" value="6"><code id="panel-refract-val">6.0</code></div>
@@ -1506,6 +1509,67 @@
         }
       } else {
         console.warn('[fx] heavy post-processes disabled by DIAGNOSTIC flag');
+      }
+
+      // -------------------- Depth-band splat blur post-process --------------------
+      // Real blur on splat pixels via a depth-aware Gaussian sampler.
+      // Samples scene depth at each pixel; if it falls in [near, far]
+      // (the splat's typical depth band), apply a Gaussian blur to the
+      // colour at that pixel. Other pixels pass through untouched.
+      let splatBlurAmount   = 0;
+      let splatBlurNearM    = 0.30;
+      let splatBlurFarM     = 3.00;
+      let splatBlurPP       = null;
+      try {
+        const depthRenderer = scene.enableDepthRenderer(camera, false, true);
+        BJS.Effect.ShadersStore['splatBlurFragmentShader'] = `
+          precision highp float;
+          varying vec2 vUV;
+          uniform sampler2D textureSampler;
+          uniform sampler2D depthSampler;
+          uniform vec2  screenSize;
+          uniform float blurAmount;
+          uniform float nearN;
+          uniform float farN;
+          uniform float cameraMaxZ;
+          void main() {
+            float depth01 = texture2D(depthSampler, vUV).r;
+            float depthM  = depth01 * cameraMaxZ;
+            vec4 base = texture2D(textureSampler, vUV);
+            if (blurAmount > 0.01 && depthM >= nearN && depthM <= farN) {
+              vec2 px = blurAmount / screenSize;
+              vec4 sum = vec4(0.0);
+              sum += texture2D(textureSampler, vUV + vec2(-px.x, -px.y)) * 0.0625;
+              sum += texture2D(textureSampler, vUV + vec2( 0.0,  -px.y)) * 0.1250;
+              sum += texture2D(textureSampler, vUV + vec2( px.x, -px.y)) * 0.0625;
+              sum += texture2D(textureSampler, vUV + vec2(-px.x,  0.0))  * 0.1250;
+              sum += base                                                 * 0.2500;
+              sum += texture2D(textureSampler, vUV + vec2( px.x,  0.0))  * 0.1250;
+              sum += texture2D(textureSampler, vUV + vec2(-px.x,  px.y)) * 0.0625;
+              sum += texture2D(textureSampler, vUV + vec2( 0.0,   px.y)) * 0.1250;
+              sum += texture2D(textureSampler, vUV + vec2( px.x,  px.y)) * 0.0625;
+              gl_FragColor = sum;
+            } else {
+              gl_FragColor = base;
+            }
+          }`;
+        splatBlurPP = new BJS.PostProcess(
+          'splatBlur', 'splatBlur',
+          ['screenSize', 'blurAmount', 'nearN', 'farN', 'cameraMaxZ'],
+          ['depthSampler'],
+          1.0, camera,
+        );
+        splatBlurPP.onApply = (effect) => {
+          effect.setTexture('depthSampler', depthRenderer.getDepthMap());
+          effect.setFloat2('screenSize', engine.getRenderWidth(), engine.getRenderHeight());
+          effect.setFloat('blurAmount', splatBlurAmount);
+          effect.setFloat('nearN', splatBlurNearM);
+          effect.setFloat('farN', splatBlurFarM);
+          effect.setFloat('cameraMaxZ', camera.maxZ);
+        };
+        console.info('[fx] depth-band splat blur attached');
+      } catch (e) {
+        console.warn('[fx] splat blur post-process failed —', e.message);
       }
 
       // -------------------- Drifting petals (Babylon ParticleSystem) --------------------
@@ -2780,6 +2844,9 @@
       bindSlider('splat-clip', 'splat-clip-val', v => {
         splatForwardClipM = v / 100;  // cm -> m
       });
+      bindSlider('splat-blur', 'splat-blur-val', v => { splatBlurAmount = v; });
+      bindSlider('splat-blur-near', 'splat-blur-near-val', v => { splatBlurNearM = v; });
+      bindSlider('splat-blur-far',  'splat-blur-far-val',  v => { splatBlurFarM  = v; });
       bindSlider('panel-blur', 'panel-blur-val', v => {
         nowCardInner.style.setProperty('--panel-blur', v + 'px');
         panelStyle.blur = v;
