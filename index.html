@@ -843,6 +843,7 @@
       // Parent for all forecast cards — keeps the Inspector hierarchy
       // tidy and lets them be moved/scaled as a unit.
       const forecastGroup = new BJS.TransformNode('forecastGroup', scene);
+      forecastGroup.position.set(0, 0.11311843246221542, 0.0642239898443222);
       for (let i = 0; i < FORECAST_DAYS; i++) {
         const t = i / (FORECAST_DAYS - 1);
         const angle = -FORECAST_ARC * 0.5 + FORECAST_ARC * t;
