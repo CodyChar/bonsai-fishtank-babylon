@@ -1735,6 +1735,29 @@
         });
         return inspectorLoading;
       }
+      let inspectorSelectionHooked = false;
+      function hookInspectorSelection() {
+        if (inspectorSelectionHooked) return;
+        const obs = (BJS.Inspector && BJS.Inspector.OnSelectionChangeObservable)
+          || (window.BABYLON && window.BABYLON.Inspector && window.BABYLON.Inspector.OnSelectionChangeObservable);
+        if (!obs || typeof obs.add !== 'function') return;
+        inspectorSelectionHooked = true;
+        obs.add((node) => {
+          if (!node) { if (gizmoManager) gizmoManager.attachToNode(null); return; }
+          if (node.name && GIZMO_EXCLUDE.has(node.name)) return;
+          const target = (node.metadata && node.metadata.selectionRoot) || node;
+          // Turn gizmos on if they aren't yet so the user sees something.
+          if (!gizmoEnabled) {
+            gizmoEnabled = true;
+            applyGizmoState();
+          }
+          if (gizmoManager && typeof gizmoManager.attachToNode === 'function') {
+            gizmoManager.attachToNode(target);
+          } else if (gizmoManager && target.position) {
+            gizmoManager.attachToMesh(target);
+          }
+        });
+      }
       async function toggleInspector() {
         try {
           await loadInspector();
@@ -1743,6 +1766,7 @@
             toast('Inspector off');
           } else {
             scene.debugLayer.show({ embedMode: true, overlay: true });
+            hookInspectorSelection();
             toast('Inspector on');
           }
         } catch (e) {
