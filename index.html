@@ -2046,10 +2046,17 @@
         for (const m of scene.meshes) if (isAuthorableNode(m)) out.push(m);
         return out;
       }
-      function saveSceneState() {
+      function captureSceneState() {
         const state = {};
         for (const n of getAuthorableNodes()) state[n.name] = snapshotNode(n);
+        return state;
+      }
+      function persistSceneState(state) {
         try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) { console.warn(e); }
+      }
+      function saveSceneState() {
+        const state = captureSceneState();
+        persistSceneState(state);
         const lines = [];
         const f = (v) => v.toFixed(4);
         for (const [name, s] of Object.entries(state)) {
@@ -2067,6 +2074,21 @@
         console.groupEnd();
         toast('Scene saved (localStorage + console)');
       }
+      // Auto-persist scene state. Diffs the JSON-serialised state every
+      // ~1.5 s and writes to localStorage only when something changed,
+      // so Inspector / gizmo edits stick across reloads without the
+      // user having to press Save. Silent — no toast, no console spam.
+      let _autoSaveLast = '';
+      setInterval(() => {
+        try {
+          const state = captureSceneState();
+          const json = JSON.stringify(state);
+          if (json !== _autoSaveLast) {
+            _autoSaveLast = json;
+            localStorage.setItem(SAVE_KEY, json);
+          }
+        } catch {}
+      }, 1500);
       function clearSceneState() {
         try { localStorage.removeItem(SAVE_KEY); } catch {}
         toast('Saved scene cleared — reload to revert');
