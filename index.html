@@ -309,6 +309,7 @@
         <span>Scene</span>
         <select id="scene-preset">
           <option value="space-needle-fbx" selected>Space Needle FBX</option>
+          <option value="seattle-splat-1">Seattle Splat 1</option>
         </select>
       </div>
 
@@ -734,48 +735,69 @@
         if (typeof restoreSceneState === 'function') restoreSceneState();
       }).catch(err => console.warn('[bonsai] load failed', err));
 
-      // -------------------- Gaussian splat tree --------------------
-      // Loads a .spz capture of a tree and parents it under treeGroup,
-      // sharing the diorama's auto-fit / HUD-slider rig. When the splat
-      // is present, hide the GLB tree so the splat is the visible tree.
+      // -------------------- Gaussian splat (swappable per scene preset) --------------------
       let splatRoot = null;
-      console.info('[splat] fetching SPZ…');
-      const splatT0 = performance.now();
-      BJS.SceneLoader.ImportMeshAsync('', './', 'tree.spz', scene).then((res) => {
-        const parseMs = (performance.now() - splatT0).toFixed(0);
-        console.info('[splat] parsed in', parseMs, 'ms, meshes', res.meshes.length);
-        const splatMesh = res.meshes.find(m => m.getClassName && m.getClassName() === 'GaussianSplattingMesh') || res.meshes[0];
-        if (!splatMesh) { console.warn('[splat] no mesh in result'); return; }
-        splatRoot = new BJS.TransformNode('splatRoot', scene);
-        splatMesh.parent = splatRoot;
-        splatRoot.parent = treeGroup;
-        // The splat is a particle-style cloud; its shader writes
-        // per-gaussian depth which intermittently wins the transparent
-        // sort against alpha-blended meshes behind it (the forecast
-        // cards). Treating it like a true 3D solid creates random
-        // occlusion. Turn off depth write so the splat composites over
-        // the depth buffer instead of punching holes in it — cards then
-        // depth-test against the deterministic scene geometry only.
-        if (splatMesh.material) splatMesh.material.disableDepthWrite = true;
-        // Normalise bbox to 0.3 m longest edge, centre at origin.
-        splatMesh.computeWorldMatrix(true);
-        const bi = splatMesh.getBoundingInfo();
-        const bmin = bi.boundingBox.minimumWorld;
-        const bmax = bi.boundingBox.maximumWorld;
-        const size = bmax.subtract(bmin);
-        const longest = Math.max(size.x, size.y, size.z);
-        if (longest > 1e-6) {
-          const s = 0.3 / longest;
-          splatRoot.scaling.setAll(s);
-          const centre = bmax.add(bmin).scale(0.5);
-          splatRoot.position.copyFrom(centre.scale(-s));
+      let splatMesh = null;
+      // World-Z plane in front of the screen at which everything past
+      // (toward the user) gets clipped. 2 inches forward = ~0.0508 m.
+      const SPLAT_FORWARD_CLIP_M = 0.0508;
+      function loadSplat(url) {
+        // Tear down whatever's already loaded.
+        if (splatMesh) {
+          try {
+            if (splatMesh.onBeforeRenderObservable) splatMesh.onBeforeRenderObservable.clear();
+            if (splatMesh.onAfterRenderObservable)  splatMesh.onAfterRenderObservable.clear();
+          } catch {}
+          try { splatMesh.dispose(); } catch {}
+          splatMesh = null;
         }
-        // Hide the GLB tree so the splat is the visible tree.
-        const glbRoot = scene.getNodeByName('bonsaiRoot');
-        if (glbRoot) glbRoot.setEnabled(false);
-        console.info('[splat] ready, bbox', size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
-        if (typeof restoreSceneState === 'function') restoreSceneState();
-      }).catch(err => console.warn('[splat] load failed —', err.message || err));
+        if (splatRoot) {
+          try { splatRoot.dispose(); } catch {}
+          splatRoot = null;
+        }
+        console.info('[splat] fetching', url, '…');
+        const t0 = performance.now();
+        return BJS.SceneLoader.ImportMeshAsync('', './', url, scene).then((res) => {
+          const parseMs = (performance.now() - t0).toFixed(0);
+          console.info('[splat] parsed', url, 'in', parseMs, 'ms');
+          const m = res.meshes.find(x => x.getClassName && x.getClassName() === 'GaussianSplattingMesh') || res.meshes[0];
+          if (!m) { console.warn('[splat] no mesh in result for', url); return; }
+          splatMesh = m;
+          splatRoot = new BJS.TransformNode('splatRoot', scene);
+          splatMesh.parent = splatRoot;
+          splatRoot.parent = treeGroup;
+          if (splatMesh.material) splatMesh.material.disableDepthWrite = true;
+          // Auto-fit bbox to 0.3 m longest edge.
+          splatMesh.computeWorldMatrix(true);
+          const bi = splatMesh.getBoundingInfo();
+          const bmin = bi.boundingBox.minimumWorld;
+          const bmax = bi.boundingBox.maximumWorld;
+          const size = bmax.subtract(bmin);
+          const longest = Math.max(size.x, size.y, size.z);
+          if (longest > 1e-6) {
+            const s = 0.3 / longest;
+            splatRoot.scaling.setAll(s);
+            const centre = bmax.add(bmin).scale(0.5);
+            splatRoot.position.copyFrom(centre.scale(-s));
+          }
+          // Per-splat clip plane: only this mesh sees the plane, so the
+          // rest of the scene (cards, walls, needle) is untouched.
+          // Plane equation: -z + d = 0, keeps pixels where z < d.
+          splatMesh.onBeforeRenderObservable.add(() => {
+            scene.clipPlane = new BJS.Plane(0, 0, -1, SPLAT_FORWARD_CLIP_M);
+          });
+          splatMesh.onAfterRenderObservable.add(() => {
+            scene.clipPlane = null;
+          });
+          // Hide the GLB tree so the splat owns the scene centre.
+          const glbRoot = scene.getNodeByName('bonsaiRoot');
+          if (glbRoot) glbRoot.setEnabled(false);
+          console.info('[splat]', url, 'ready, bbox',
+            size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+          if (typeof restoreSceneState === 'function') restoreSceneState();
+        }).catch(err => console.warn('[splat] load failed —', err.message || err));
+      }
+      loadSplat('tree.spz');
 
       // -------------------- Space Needle textured model --------------------
       // GLB converted from spaceneedle.fbx via fbx2gltf (Oculus/Facebook).
@@ -2087,16 +2109,18 @@
       // import callback re-applies after bonsaiRoot is attached.
       restoreSceneState();
 
-      // Scene preset selector. Currently a single preset; future scenes
-      // would add entries to SCENE_PRESETS and a loader function that
-      // disposes the current content + builds the new one.
+      // Scene preset selector. Each preset defines which splat to load
+      // into the diorama; the needle / cards / walls stay put.
       const SCENE_PRESETS = {
-        'space-needle-fbx': { label: 'Space Needle FBX' },
+        'space-needle-fbx':   { label: 'Space Needle FBX', splatUrl: 'tree.spz' },
+        'seattle-splat-1':    { label: 'Seattle Splat 1',  splatUrl: 'seattle-splat.spz' },
       };
       const scenePresetSelect = document.getElementById('scene-preset');
       scenePresetSelect.addEventListener('change', () => {
         const preset = SCENE_PRESETS[scenePresetSelect.value];
-        if (preset) toast(`Scene: ${preset.label}`);
+        if (!preset) return;
+        toast(`Scene: ${preset.label}`);
+        if (preset.splatUrl) loadSplat(preset.splatUrl);
       });
 
       document.getElementById('save-btn').addEventListener('click', saveSceneState);
