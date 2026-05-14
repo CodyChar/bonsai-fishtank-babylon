@@ -303,7 +303,7 @@
       <div class="slider-row"><span>Box depth (cm)</span><input id="box-d" type="range" min="5" max="40" step="0.5" value="21.5"><code id="box-d-val">21.5</code></div>
 
       <h2>Weather UI</h2>
-      <div class="slider-row"><span>Face swap (cm)</span><input id="proxy-swap-face" type="range" min="40" max="100" step="1" value="70"><code id="proxy-swap-face-val">70</code></div>
+      <div class="slider-row"><span>Face swap (cm)</span><input id="proxy-swap-face" type="range" min="40" max="100" step="1" value="75"><code id="proxy-swap-face-val">75</code></div>
       <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
 
       <h2>Sun / atmosphere</h2>
@@ -791,12 +791,106 @@
       // intermittently as its per-frame splat sort changes.
       scene.setRenderingAutoClearDepthStencil(1, true, true, true);
       for (const { card } of forecastCards) card.renderingGroupId = 1;
+      function drawCloud(ctx, cx, cy, r) {
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
+        ctx.arc(cx + r * 0.55, cy + r * 0.20, r * 0.42, 0, Math.PI * 2);
+        ctx.arc(cx,            cy - r * 0.05, r * 0.55, 0, Math.PI * 2);
+        ctx.rect(cx - r * 0.55, cy + r * 0.10, r * 1.1, r * 0.55);
+        ctx.fill();
+      }
+      function drawWeatherIcon(ctx, type, cx, cy, s) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        switch (type) {
+          case 'sun': {
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 0.30, 0, Math.PI * 2);
+            ctx.fill();
+            for (let i = 0; i < 8; i++) {
+              const a = (i / 8) * Math.PI * 2;
+              ctx.beginPath();
+              ctx.moveTo(Math.cos(a) * s * 0.42, Math.sin(a) * s * 0.42);
+              ctx.lineTo(Math.cos(a) * s * 0.56, Math.sin(a) * s * 0.56);
+              ctx.stroke();
+            }
+            break;
+          }
+          case 'sun-cloud': {
+            ctx.beginPath();
+            ctx.arc(-s * 0.22, -s * 0.18, s * 0.20, 0, Math.PI * 2);
+            ctx.fill();
+            for (let i = 0; i < 6; i++) {
+              const a = (i / 6) * Math.PI * 2;
+              ctx.beginPath();
+              ctx.moveTo(-s * 0.22 + Math.cos(a) * s * 0.26, -s * 0.18 + Math.sin(a) * s * 0.26);
+              ctx.lineTo(-s * 0.22 + Math.cos(a) * s * 0.36, -s * 0.18 + Math.sin(a) * s * 0.36);
+              ctx.stroke();
+            }
+            drawCloud(ctx, s * 0.12, s * 0.08, s * 0.42);
+            break;
+          }
+          case 'cloud':   drawCloud(ctx, 0, 0, s * 0.52); break;
+          case 'fog': {
+            drawCloud(ctx, 0, -s * 0.22, s * 0.42);
+            for (let i = 0; i < 3; i++) {
+              ctx.beginPath();
+              ctx.moveTo(-s * 0.34, s * 0.10 + i * s * 0.14);
+              ctx.lineTo( s * 0.34, s * 0.10 + i * s * 0.14);
+              ctx.stroke();
+            }
+            break;
+          }
+          case 'drizzle':
+          case 'rain':
+          case 'rain-heavy': {
+            drawCloud(ctx, 0, -s * 0.18, s * 0.45);
+            const drops = type === 'rain-heavy' ? 4 : 3;
+            const dr = type === 'drizzle' ? s * 0.06 : s * 0.10;
+            for (let i = 0; i < drops; i++) {
+              const x = (i - (drops - 1) / 2) * (s * 0.20);
+              ctx.beginPath();
+              ctx.ellipse(x, s * 0.30, dr * 0.45, dr, 0, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            break;
+          }
+          case 'snow': {
+            drawCloud(ctx, 0, -s * 0.18, s * 0.45);
+            for (let i = 0; i < 3; i++) {
+              ctx.beginPath();
+              ctx.arc((i - 1) * s * 0.22, s * 0.30, s * 0.06, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            break;
+          }
+          case 'storm': {
+            drawCloud(ctx, 0, -s * 0.20, s * 0.45);
+            ctx.beginPath();
+            ctx.moveTo(-s * 0.06, s * 0.05);
+            ctx.lineTo( s * 0.10, s * 0.15);
+            ctx.lineTo(-s * 0.04, s * 0.18);
+            ctx.lineTo( s * 0.12, s * 0.40);
+            ctx.lineTo(-s * 0.02, s * 0.22);
+            ctx.lineTo( s * 0.04, s * 0.20);
+            ctx.closePath();
+            ctx.fill();
+            break;
+          }
+          default: drawCloud(ctx, 0, 0, s * 0.50);
+        }
+        ctx.restore();
+      }
       function paintForecastCard(slot, day) {
         const tex = slot.tex;
         const ctx = tex.getContext();
         const W = 256, H = 384, R = 22;
         ctx.clearRect(0, 0, W, H);
-        // Rounded-rect path used for both fill and clip.
         function roundRectPath() {
           ctx.beginPath();
           ctx.moveTo(R, 0);
@@ -806,55 +900,55 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Frosted-glass body: translucent white with a vertical gradient
-        // so light catches the top edge.
+        // Frosted body
         roundRectPath();
         const body = ctx.createLinearGradient(0, 0, 0, H);
-        body.addColorStop(0,   'rgba(255, 255, 255, 0.26)');
-        body.addColorStop(0.5, 'rgba(255, 255, 255, 0.14)');
-        body.addColorStop(1,   'rgba(255, 255, 255, 0.18)');
+        body.addColorStop(0,   'rgba(255, 255, 255, 0.30)');
+        body.addColorStop(0.5, 'rgba(255, 255, 255, 0.16)');
+        body.addColorStop(1,   'rgba(255, 255, 255, 0.22)');
         ctx.fillStyle = body;
         ctx.fill();
-        // Inner top highlight (clipped to rounded shape).
+        // Top sheen
         ctx.save();
         ctx.clip();
-        const sheen = ctx.createLinearGradient(0, 0, 0, 60);
-        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.30)');
+        const sheen = ctx.createLinearGradient(0, 0, 0, 70);
+        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
         sheen.addColorStop(1, 'rgba(255, 255, 255, 0.00)');
         ctx.fillStyle = sheen;
-        ctx.fillRect(0, 0, W, 60);
+        ctx.fillRect(0, 0, W, 70);
         ctx.restore();
-        // Bright edge outline.
+        // Bright rim
         roundRectPath();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.38)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.lineWidth = 2.5;
         ctx.stroke();
-        // Text — solid white with subtle shadow for legibility against
-        // any background showing through the glass.
+        // Layout: day + date at top, big icon middle, hi/lo at bottom
         ctx.textAlign = 'center';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-        ctx.shadowBlur = 5;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+        ctx.shadowBlur = 8;
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 36px system-ui';
-        ctx.fillText(day.dayLabel, W / 2, 56);
-        ctx.font = '22px system-ui';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-        ctx.fillText(day.dateLabel, W / 2, 86);
+        ctx.font = 'bold 46px system-ui';
+        ctx.fillText(day.dayLabel, W / 2, 60);
         ctx.font = '24px system-ui';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillText(day.dateLabel, W / 2, 96);
+        // Icon
+        ctx.shadowBlur = 10;
+        drawWeatherIcon(ctx, day.icon || 'cloud', W / 2, 210, 130);
+        // Hi/Lo
+        ctx.shadowBlur = 8;
+        ctx.font = 'bold 52px system-ui';
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(day.cond, W / 2, 200);
-        ctx.font = 'bold 38px system-ui';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(day.hi + '°', W / 2 - 38, 320);
-        ctx.font = '32px system-ui';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-        ctx.fillText(day.lo + '°', W / 2 + 42, 320);
+        ctx.fillText(day.hi + '°', W / 2 - 50, 350);
+        ctx.font = '42px system-ui';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.70)';
+        ctx.fillText(day.lo + '°', W / 2 + 56, 350);
         ctx.shadowBlur = 0;
         tex.update();
       }
       // Initial placeholder so cards aren't blank before fetch resolves.
-      forecastCards.forEach((slot, i) =>
-        paintForecastCard(slot, { dayLabel: '—', dateLabel: '—', cond: 'Loading…', hi: '—', lo: '—' })
+      forecastCards.forEach((slot) =>
+        paintForecastCard(slot, { dayLabel: '—', dateLabel: '—', cond: 'Loading…', icon: 'cloud', hi: '—', lo: '—' })
       );
       // Hide the back wall so cards aren't occluded.
       {
@@ -1896,6 +1990,18 @@
           if (c <= 86) return 'Snow Showers';
           return 'Thunderstorm';
         };
+        const iconFromCode = (c) => {
+          if (c === 0) return 'sun';
+          if (c === 1 || c === 2) return 'sun-cloud';
+          if (c === 3) return 'cloud';
+          if (c <= 48) return 'fog';
+          if (c <= 57) return 'drizzle';
+          if (c <= 67) return 'rain';
+          if (c <= 77) return 'snow';
+          if (c <= 82) return 'rain-heavy';
+          if (c <= 86) return 'snow';
+          return 'storm';
+        };
         const nowCard = {
           day:  document.querySelector('#now-card .now-day'),
           date: document.querySelector('#now-card .now-date'),
@@ -1914,6 +2020,7 @@
               dayLabel: dt.toLocaleDateString('en-US', { weekday: 'short' }),
               dateLabel: (dt.getMonth() + 1) + '/' + dt.getDate(),
               cond: condFromCode(d.daily.weather_code[i]),
+              icon: iconFromCode(d.daily.weather_code[i]),
               hi: Math.round(d.daily.temperature_2m_max[i]),
               lo: Math.round(d.daily.temperature_2m_min[i]),
             });
@@ -1931,7 +2038,7 @@
         } catch (e) {
           console.warn('[weather] fetch failed —', e.message);
           forecastCards.forEach((slot) => paintForecastCard(slot, {
-            dayLabel: '—', dateLabel: '—', cond: 'Offline', hi: '—', lo: '—',
+            dayLabel: '—', dateLabel: '—', cond: 'Offline', icon: 'cloud', hi: '—', lo: '—',
           }));
           if (nowCard.cond) nowCard.cond.textContent = 'Offline';
         }
@@ -1944,7 +2051,7 @@
       // until z rises back above (threshold + hysteresis), preventing
       // flutter right at the boundary. The animation itself eases each
       // frame toward 0 (far) or 1 (close).
-      let proxThresholdZFace  = 0.70;     // metres; HUD-bound
+      let proxThresholdZFace  = 0.75;     // metres; HUD-bound
       let proxThresholdZPhone = 0.40;     // metres; HUD-bound
       const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
       const PROX_FADE_RATE  = 0.18;       // ease per frame (50% snappier)
@@ -2033,8 +2140,8 @@
       });
       if (localStorage.getItem('bonsaiBabylonUIHidden') === '1') setUIHidden(true);
 
-      startBtn.addEventListener('click', (ev) => {
-        ev.currentTarget.disabled = true;
+      function beginTracking(triggerEl) {
+        if (triggerEl) triggerEl.disabled = true;
         startTracking().catch(err => {
           console.error(err);
           const msg = err.name === 'NotAllowedError' ? 'camera permission denied'
@@ -2043,9 +2150,14 @@
             : err.message.length > 60 ? err.message.slice(0, 58) + '…'
             : err.message;
           faceStatusEl.textContent = 'error: ' + msg;
-          ev.currentTarget.disabled = false;
+          if (triggerEl) triggerEl.disabled = false;
         });
-      });
+      }
+      startBtn.addEventListener('click', (ev) => beginTracking(ev.currentTarget));
+      // Auto-start the camera so the proximity-driven UI works out of the
+      // box. Browsers remember the permission grant for the origin, so
+      // after the first allow this requires no further user gesture.
+      window.requestAnimationFrame(() => beginTracking(startBtn));
 
       // -------------------- Slider wiring --------------------
       function bindSlider(id, valId, fn) {
