@@ -824,7 +824,10 @@
           const bmax = bi.boundingBox.maximumWorld;
           const size = bmax.subtract(bmin);
           const longest = Math.max(size.x, size.y, size.z);
-          if (longest > 1e-6) {
+          if (opts && opts.factoryDefault) {
+            // Skip auto-fit entirely. splatRoot stays at identity and
+            // splatMesh keeps whatever native transform the file ships.
+          } else if (longest > 1e-6) {
             const s = 0.3 / longest;
             splatRoot.scaling.setAll(s);
             const centre = bmax.add(bmin).scale(0.5);
@@ -2204,7 +2207,10 @@
         'seattle-splat-1':  {
           label: 'Seattle Splat 1',
           splatUrl: 'seattle-splat.spz',
-          // No transform overrides — let the auto-fit place the splat.
+          // Factory default — no auto-fit, no overrides. splatRoot stays
+          // at identity and the GaussianSplatting mesh ships with its
+          // native transform from the .spz file.
+          factoryDefault: true,
           apply: () => {
             setWallsVisible(false);   // hide all shoebox walls + ceiling + floor
             setMainLightsVisible(false);
