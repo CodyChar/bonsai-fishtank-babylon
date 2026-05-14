@@ -309,7 +309,6 @@
         <span>Scene</span>
         <select id="scene-preset">
           <option value="space-needle-fbx" selected>Space Needle FBX</option>
-          <option value="seattle-splat-1">Seattle Splat 1</option>
         </select>
       </div>
 
@@ -2202,19 +2201,6 @@
             setWallsVisible(true);
             setMainLightsVisible(true);
             setNeedleVisible(true);
-          },
-        },
-        'seattle-splat-1':  {
-          label: 'Seattle Splat 1',
-          splatUrl: 'seattle-splat.spz',
-          // Factory default — no auto-fit, no overrides. splatRoot stays
-          // at identity and the GaussianSplatting mesh ships with its
-          // native transform from the .spz file.
-          factoryDefault: true,
-          apply: () => {
-            setWallsVisible(false);   // hide all shoebox walls + ceiling + floor
-            setMainLightsVisible(false);
-            setNeedleVisible(false);
           },
         },
       };
