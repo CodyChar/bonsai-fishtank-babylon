@@ -746,6 +746,13 @@
       let splatRoot = null;
       let splatMesh = null;
       let splatSizeScale = 1.0;   // live-bound to the Splat size slider
+      // Per-gaussian DoF — backup of original scales + handles to live
+      // arrays so we can blur splats by distance from the focal plane.
+      let _splatOrigScales = null;
+      let _splatPositionsBuf = null;
+      let _splatScalesBuf = null;
+      let _splatDoFActive = false;
+      let _splatDoFRefresh = null;   // function or null — re-upload hook
       // World-Z plane in front of the screen at which the splat is
       // sliced. Live-bound to the Splat clip slider. Default 5 cm.
       let splatForwardClipM = 0.05;
@@ -895,6 +902,34 @@
           if (glbRoot) glbRoot.setEnabled(false);
           console.info('[splat]', url, 'ready, bbox',
             size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
+          // Probe for the per-gaussian buffers we need to do real DoF.
+          {
+            const posCandidates = ['splatPositions', '_splatPositions', 'positions', '_positions'];
+            const scaleCandidates = ['splatScales', '_splatScales', 'scales', '_scales', '_splatCovariances'];
+            let pos = null, scl = null;
+            for (const k of posCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { pos = splatMesh[k]; break; }
+            for (const k of scaleCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { scl = splatMesh[k]; break; }
+            if (pos && scl) {
+              _splatPositionsBuf = pos;
+              _splatScalesBuf   = scl;
+              _splatOrigScales  = new Float32Array(scl);
+              // Find a refresh / re-pack entry point.
+              const refreshNames = ['updateData', 'applyTransforms', 'refreshBoundingInfo', 'rebuild', '_packBuffers'];
+              for (const fn of refreshNames) {
+                if (typeof splatMesh[fn] === 'function') {
+                  _splatDoFRefresh = splatMesh[fn].bind(splatMesh);
+                  console.info('[splat] DoF refresh hook found ->', fn);
+                  break;
+                }
+              }
+              console.info('[splat] DoF: probed buffers — positions', pos.length, 'scales', scl.length,
+                'refresh', _splatDoFRefresh ? 'yes' : 'no');
+            } else {
+              _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
+              _splatDoFRefresh = null;
+              console.warn('[splat] DoF: per-gaussian buffers not accessible on this build');
+            }
+          }
           if (typeof restoreSceneState === 'function') restoreSceneState();
         }).catch(err => console.warn('[splat] load failed —', err.message || err));
       }
@@ -2600,6 +2635,36 @@
           // value always wins, regardless of any internal cache or
           // observable re-applying older values.
           pipeline.depthOfField.focalLength = userFocalLength;
+          // Per-gaussian splat DoF: scale every gaussian by distance
+          // from the focal plane so out-of-focus splats spread / bloom
+          // and in-focus ones stay tight.
+          if (_splatDoFActive && _splatPositionsBuf && _splatScalesBuf && _splatOrigScales) {
+            splatMesh.computeWorldMatrix(true);
+            const wm = splatMesh.getWorldMatrix();
+            const focalWorldZ = camera.position.z - focusM;
+            // 0..1 from DoF slider mapped to a quadratic strength.
+            // strength 0 = no per-gaussian effect, strength 1 = strong
+            // bloom for splats well outside focus.
+            const dofStrength = Math.max(0, Math.min(1, (12 - pipeline.depthOfField.fStop) / 11.5));
+            const k = 20 * dofStrength;
+            const pos = _splatPositionsBuf;
+            const scl = _splatScalesBuf;
+            const orig = _splatOrigScales;
+            const count = (pos.length / 3) | 0;
+            const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
+            for (let i = 0; i < count; i++) {
+              const i3 = i * 3;
+              const worldZ = m02 * pos[i3] + m06 * pos[i3 + 1] + m10 * pos[i3 + 2] + m14;
+              const d = worldZ - focalWorldZ;
+              const blur = 1 + k * d * d;
+              scl[i3]     = orig[i3]     * blur;
+              scl[i3 + 1] = orig[i3 + 1] * blur;
+              scl[i3 + 2] = orig[i3 + 2] * blur;
+            }
+            if (_splatDoFRefresh) {
+              try { _splatDoFRefresh(); } catch (e) { /* swallow */ }
+            }
+          }
         }
       });
 
@@ -2755,6 +2820,14 @@
         // Slider 0..50 -> fStop 16..0.5 linear. v=0 = pinhole (deep
         // DoF), v=50 = wide-open aperture (extreme blur).
         pipeline.depthOfField.fStop = Math.max(0.5, 16 - 0.31 * v);
+        // Engage per-gaussian splat DoF whenever the slider is > 0.
+        _splatDoFActive = v > 0;
+        // If turning off, restore original scales so the splat snaps
+        // back to its original sharpness.
+        if (v === 0 && _splatScalesBuf && _splatOrigScales) {
+          _splatScalesBuf.set(_splatOrigScales);
+          if (_splatDoFRefresh) try { _splatDoFRefresh(); } catch {}
+        }
       });
       bindSlider('fx-focal', 'fx-focal-val', (v, inp) => {
         userFocalLength = v;   // applied per-frame in the DoF observable
