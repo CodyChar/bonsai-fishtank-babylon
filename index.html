@@ -332,7 +332,7 @@
       <div class="slider-row"><span>Phone swap (cm)</span><input id="proxy-swap-phone" type="range" min="15" max="65" step="1" value="40"><code id="proxy-swap-phone-val">40</code></div>
       <div class="slider-row"><span>Splat size</span><input id="splat-scale" type="range" min="0.1" max="3.0" step="0.05" value="1.0"><code id="splat-scale-val">1.00</code></div>
       <div class="slider-row"><span>Splat clip (cm)</span><input id="splat-clip" type="range" min="-30" max="100" step="0.5" value="5"><code id="splat-clip-val">5.0</code></div>
-      <div class="slider-row"><span>Splat blur</span><input id="splat-blur" type="range" min="0" max="20" step="0.5" value="0"><code id="splat-blur-val">0</code></div>
+      <div class="slider-row"><span>Splat blur</span><input id="splat-blur" type="range" min="0" max="80" step="0.5" value="0"><code id="splat-blur-val">0</code></div>
       <div class="slider-row"><span>Blur near (m)</span><input id="splat-blur-near" type="range" min="0.05" max="5.0" step="0.05" value="0.30"><code id="splat-blur-near-val">0.30</code></div>
       <div class="slider-row"><span>Blur far (m)</span><input id="splat-blur-far" type="range" min="0.10" max="20.0" step="0.05" value="3.00"><code id="splat-blur-far-val">3.00</code></div>
       <div class="slider-row"><span>Panel blur</span><input id="panel-blur" type="range" min="0" max="40" step="0.5" value="13"><code id="panel-blur-val">13</code></div>
@@ -1532,23 +1532,29 @@
           uniform float nearN;
           uniform float farN;
           uniform float cameraMaxZ;
+          // 5-tap 1D Gaussian weights, sigma ~1.5; outer product yields
+          // a 25-tap 2D kernel. We pre-multiply at compile time.
+          const float W0 = 0.0625;
+          const float W1 = 0.2500;
+          const float W2 = 0.3750;
           void main() {
             float depth01 = texture2D(depthSampler, vUV).r;
             float depthM  = depth01 * cameraMaxZ;
             vec4 base = texture2D(textureSampler, vUV);
             if (blurAmount > 0.01 && depthM >= nearN && depthM <= farN) {
-              vec2 px = blurAmount / screenSize;
-              vec4 sum = vec4(0.0);
-              sum += texture2D(textureSampler, vUV + vec2(-px.x, -px.y)) * 0.0625;
-              sum += texture2D(textureSampler, vUV + vec2( 0.0,  -px.y)) * 0.1250;
-              sum += texture2D(textureSampler, vUV + vec2( px.x, -px.y)) * 0.0625;
-              sum += texture2D(textureSampler, vUV + vec2(-px.x,  0.0))  * 0.1250;
-              sum += base                                                 * 0.2500;
-              sum += texture2D(textureSampler, vUV + vec2( px.x,  0.0))  * 0.1250;
-              sum += texture2D(textureSampler, vUV + vec2(-px.x,  px.y)) * 0.0625;
-              sum += texture2D(textureSampler, vUV + vec2( 0.0,   px.y)) * 0.1250;
-              sum += texture2D(textureSampler, vUV + vec2( px.x,  px.y)) * 0.0625;
-              gl_FragColor = sum;
+              // Sample at 5 offsets per axis -> 25-tap blur.
+              vec2 step = blurAmount / screenSize;
+              vec4 s = vec4(0.0);
+              float wy[5]; float wx[5];
+              wx[0]=W0; wx[1]=W1; wx[2]=W2; wx[3]=W1; wx[4]=W0;
+              wy[0]=W0; wy[1]=W1; wy[2]=W2; wy[3]=W1; wy[4]=W0;
+              for (int j = 0; j < 5; j++) {
+                for (int i = 0; i < 5; i++) {
+                  vec2 off = vec2(float(i) - 2.0, float(j) - 2.0) * step;
+                  s += texture2D(textureSampler, vUV + off) * (wx[i] * wy[j]);
+                }
+              }
+              gl_FragColor = s;
             } else {
               gl_FragColor = base;
             }
