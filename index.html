@@ -1837,6 +1837,7 @@
         if (letterboxTop) letterboxTop.setEnabled(v);
         if (letterboxBottom) letterboxBottom.setEnabled(v);
       }
+      let _dofWasEnabled = true;
       function toggleEditCamera() {
         ensureEditCamera();
         editMode = !editMode;
@@ -1844,11 +1845,20 @@
           scene.activeCamera = editCam;
           editCam.attachControl(canvas, true);
           setLetterboxVisible(false);
+          // Kill DoF while authoring — nothing's worse than blurry
+          // gizmos. Remember the prior state so we can restore it.
+          if (pipeline && pipeline.depthOfField) {
+            _dofWasEnabled = pipeline.depthOfFieldEnabled;
+            pipeline.depthOfFieldEnabled = false;
+          }
           toast('Edit camera — drag to orbit the tree, wheel to zoom');
         } else {
           editCam.detachControl(canvas);
           scene.activeCamera = camera;
           setLetterboxVisible(true);
+          if (pipeline && pipeline.depthOfField) {
+            pipeline.depthOfFieldEnabled = _dofWasEnabled;
+          }
           toast('Head-coupled camera');
         }
       }
