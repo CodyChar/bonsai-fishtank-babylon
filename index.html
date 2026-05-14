@@ -851,6 +851,31 @@
             if (opts.meshScaling)  splatMesh.scaling.copyFrom(opts.meshScaling);
           }
           applySplatSize();
+          // Depth proxy: invisible box matching the splat's local bbox.
+          // The splat shader itself doesn't write depth, so the scene's
+          // DoF post pass otherwise reads the skybox far behind the
+          // splat and refuses to blur the splat at all. The proxy
+          // writes depth but no colour (disableColorWrite) so DoF now
+          // sees a sensible distance for the splat region and blurs
+          // it according to the focus plane. Crude — every pixel in
+          // the splat's bounding volume gets a uniform proxy depth —
+          // but it makes the DoF slider react to the splat at all.
+          const lbi = splatMesh.getBoundingInfo();
+          const lmin = lbi.boundingBox.minimum;
+          const lmax = lbi.boundingBox.maximum;
+          const proxy = BJS.MeshBuilder.CreateBox('splatDepthProxy', {
+            width:  Math.max(0.001, lmax.x - lmin.x),
+            height: Math.max(0.001, lmax.y - lmin.y),
+            depth:  Math.max(0.001, lmax.z - lmin.z),
+          }, scene);
+          proxy.position = lmin.add(lmax).scale(0.5);
+          proxy.parent = splatMesh;        // inherit splatMesh's transform
+          proxy.isPickable = false;
+          const proxyMat = new BJS.StandardMaterial('splatDepthProxyMat', scene);
+          proxyMat.disableLighting = true;
+          proxyMat.disableColorWrite = true;  // writes depth, no colour
+          proxyMat.backFaceCulling = false;
+          proxy.material = proxyMat;
           // Per-splat clip plane: only this mesh sees the plane, so the
           // rest of the scene (cards, walls, needle) is untouched.
           // Inverted from the previous version — normal (0, 0, 1) means
