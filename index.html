@@ -103,8 +103,8 @@
           rgba(255,255,255,0.18) 0%,
           rgba(0,0,0,0.34) 50%,
           rgba(0,0,0,0.28) 100%);
-        backdrop-filter: url(#acrylic-warp) blur(28px) saturate(160%);
-        -webkit-backdrop-filter: url(#acrylic-warp) blur(28px) saturate(160%);
+        backdrop-filter: url(#acrylic-warp) blur(14px) saturate(140%);
+        -webkit-backdrop-filter: url(#acrylic-warp) blur(14px) saturate(140%);
         border-radius: 28px;
         box-shadow:
           inset 0 0 0 1.2px rgba(255,255,255,0.45),
@@ -129,6 +129,19 @@
           radial-gradient(120% 80% at 18% 0%, rgba(255,255,255,0.26), transparent 55%),
           radial-gradient(100% 60% at 80% 100%, rgba(255,255,255,0.10), transparent 60%);
         mix-blend-mode: screen;
+      }
+      /* Fine fractal-noise tile breaks up smooth gradients so the panel
+         doesn't show colour banding on flat areas. SVG data URL is
+         tiled and overlay-blended at low opacity. */
+      #now-card .now-card-inner::after {
+        content: '';
+        position: absolute; inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='5' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.85'/></svg>");
+        background-size: 220px 220px;
+        opacity: 0.10;
+        mix-blend-mode: overlay;
       }
       #now-card .now-loc  { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .88; margin-bottom: 16px; font-weight: 500; }
       #now-card .now-day  { font-size: 28px; font-weight: 600; line-height: 1.1; }
