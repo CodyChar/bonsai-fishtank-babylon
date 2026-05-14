@@ -787,11 +787,6 @@
         card.material = mat;
         forecastCards.push({ card, tex });
       }
-      // Put forecast cards in their own rendering group with a depth
-      // clear so the Gaussian-splat draw above doesn't occlude them
-      // intermittently as its per-frame splat sort changes.
-      scene.setRenderingAutoClearDepthStencil(1, true, true, true);
-      for (const { card } of forecastCards) card.renderingGroupId = 1;
       function drawCloud(ctx, cx, cy, r) {
         ctx.beginPath();
         ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
