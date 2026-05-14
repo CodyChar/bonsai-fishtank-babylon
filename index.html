@@ -2390,6 +2390,7 @@
       const FOCUS_SEAT_Z  = 0.61;             // matches the FreeCamera init Z
       const _fgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.80);  // close target
       const _bgPos = new BJS.Vector3(0, 0, FOCUS_SEAT_Z - 0.49);  // far target
+      let userFocalLength = 85;
       // Rack-focus animation: 0 = bg, 1 = fg, eased over RACK_DURATION
       // seconds when the proxy state flips.
       const RACK_DURATION_SEC = 0.75;
@@ -2502,6 +2503,10 @@
           const camToScene = BJS.Vector3.Distance(camera.position, treeGroup.getAbsolutePosition());
           pipeline.depthOfField.lensSize =
             REF_LENS_PX * (Math.max(0.10, camToScene) / REF_SCENE_DIST);
+          // Re-push the user-set focal length each frame so the slider
+          // value always wins, regardless of any internal cache or
+          // observable re-applying older values.
+          pipeline.depthOfField.focalLength = userFocalLength;
         }
       });
 
@@ -2651,7 +2656,7 @@
         pipeline.depthOfField.fStop = Math.max(1.0, 8 - 1.4 * v);
       });
       bindSlider('fx-focal', 'fx-focal-val', (v, inp) => {
-        pipeline.depthOfField.focalLength = v;
+        userFocalLength = v;   // applied per-frame in the DoF observable
         document.getElementById('fx-focal-val').textContent = inp.value;
       });
       // Slider value = distance from the default sit-back. The spot is
