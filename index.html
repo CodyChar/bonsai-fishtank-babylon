@@ -2223,7 +2223,16 @@
           // Distance from live camera to each fixed spot, then lerp.
           const dBg = BJS.Vector3.Distance(camera.position, _bgPos);
           const dFg = BJS.Vector3.Distance(camera.position, _fgPos);
-          pipeline.depthOfField.focusDistance = (dBg + (dFg - dBg) * proxAnim) * 1000;
+          const focusM = dBg + (dFg - dBg) * proxAnim;
+          pipeline.depthOfField.focusDistance = focusM * 1000;
+          // Physical-ish: with a fixed lens + aperture, DoF narrows as
+          // the subject distance shortens. Scale lensSize ∝ 1/focusM
+          // around a reference focus so leaning in genuinely shallows
+          // out the DoF and leaning back deepens it.
+          const REF_FOCUS_M  = 0.85;
+          const REF_LENS_PX  = 50;
+          pipeline.depthOfField.lensSize =
+            REF_LENS_PX * (REF_FOCUS_M / Math.max(0.10, focusM));
         }
       });
 
