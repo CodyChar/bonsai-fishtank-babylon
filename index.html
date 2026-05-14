@@ -902,10 +902,40 @@
           if (glbRoot) glbRoot.setEnabled(false);
           console.info('[splat]', url, 'ready, bbox',
             size.x.toFixed(3), size.y.toFixed(3), size.z.toFixed(3));
-          // Probe for the per-gaussian buffers we need to do real DoF.
+          // Diagnostic dump so we can see what this Babylon build
+          // actually exposes on the splat mesh.
           {
-            const posCandidates = ['splatPositions', '_splatPositions', 'positions', '_positions'];
-            const scaleCandidates = ['splatScales', '_splatScales', 'scales', '_scales', '_splatCovariances'];
+            console.groupCollapsed('[splat] mesh diagnostics — for per-gaussian DoF wiring');
+            console.log('class:', splatMesh.getClassName?.() ?? '?');
+            const arrayKeys = [];
+            const fnKeys = [];
+            const seen = new Set();
+            for (let obj = splatMesh; obj && obj !== Object.prototype; obj = Object.getPrototypeOf(obj)) {
+              for (const k of Object.getOwnPropertyNames(obj)) {
+                if (seen.has(k)) continue; seen.add(k);
+                let v;
+                try { v = splatMesh[k]; } catch { continue; }
+                if (v && typeof v === 'object' && typeof v.length === 'number' && v.length > 0 &&
+                    (v instanceof Float32Array || v instanceof Uint8Array || v instanceof Uint32Array ||
+                     v instanceof Int32Array  || v instanceof Float64Array)) {
+                  arrayKeys.push(`${k}: ${v.constructor.name}(${v.length})`);
+                } else if (typeof v === 'function' && /pack|update|refresh|build|apply|set.?data|set.?splat/i.test(k)) {
+                  fnKeys.push(k);
+                }
+              }
+            }
+            console.log('typed-array properties:', arrayKeys.length ? arrayKeys : '(none found)');
+            console.log('candidate refresh methods:', fnKeys.length ? fnKeys : '(none found)');
+            // Vertex / index buffer hints from the geometry, if any.
+            try {
+              const geom = splatMesh.geometry;
+              if (geom) {
+                console.log('vertex buffer kinds:', geom.getVerticesDataKinds?.());
+              }
+            } catch {}
+            console.groupEnd();
+            const posCandidates = ['splatPositions', '_splatPositions', 'positions', '_positions', 'splatPosition'];
+            const scaleCandidates = ['splatScales', '_splatScales', 'scales', '_scales', '_splatCovariances', 'splatScale', '_covariances'];
             let pos = null, scl = null;
             for (const k of posCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { pos = splatMesh[k]; break; }
             for (const k of scaleCandidates) if (splatMesh[k] && splatMesh[k].length > 0) { scl = splatMesh[k]; break; }
@@ -913,8 +943,9 @@
               _splatPositionsBuf = pos;
               _splatScalesBuf   = scl;
               _splatOrigScales  = new Float32Array(scl);
-              // Find a refresh / re-pack entry point.
-              const refreshNames = ['updateData', 'applyTransforms', 'refreshBoundingInfo', 'rebuild', '_packBuffers'];
+              const refreshNames = ['updateData', 'applyTransforms', 'refreshBoundingInfo', 'rebuild',
+                                    '_packBuffers', 'updateSplats', 'updateBuffer', 'updateMesh', '_buildBuffers',
+                                    'updateSplatData', 'setSplats', '_updateBuffers'];
               for (const fn of refreshNames) {
                 if (typeof splatMesh[fn] === 'function') {
                   _splatDoFRefresh = splatMesh[fn].bind(splatMesh);
@@ -922,12 +953,12 @@
                   break;
                 }
               }
-              console.info('[splat] DoF: probed buffers — positions', pos.length, 'scales', scl.length,
+              console.info('[splat] DoF: buffers ready — positions', pos.length, 'scales', scl.length,
                 'refresh', _splatDoFRefresh ? 'yes' : 'no');
             } else {
               _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
               _splatDoFRefresh = null;
-              console.warn('[splat] DoF: per-gaussian buffers not accessible on this build');
+              console.warn('[splat] DoF: per-gaussian buffers not accessible — see diagnostics dump above');
             }
           }
           if (typeof restoreSceneState === 'function') restoreSceneState();
