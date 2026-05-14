@@ -2056,6 +2056,7 @@
       const PROX_FADE_RATE  = 0.18;       // ease per frame (50% snappier)
       let proxState = 'far';
       let proxAnim  = 0;
+      let proxBlurAnim = 0;     // separate ease for the blur effect — slower
       // Focus distances (mm) — far is the slider; near kicks in when the
       // user leans close enough to trigger the swap. The actual
       // pipeline.depthOfField.focusDistance is lerped between them by
@@ -2121,13 +2122,14 @@
         if (proxState === 'far'   && z < thresh) proxState = 'close';
         else if (proxState === 'close' && z > thresh + PROX_HYSTERESIS) proxState = 'far';
         const target = proxState === 'close' ? 1 : 0;
-        proxAnim += (target - proxAnim) * PROX_FADE_RATE;
+        proxAnim     += (target - proxAnim)     * PROX_FADE_RATE;
+        proxBlurAnim += (target - proxBlurAnim) * PROX_FADE_RATE * 0.5; // ~2x slower
         // Fade: 1 -> 0 as user gets close.
         // Scale: 1.00 -> 1.10 (grows slightly as it disappears).
         // Blur:  0 px -> 12 px on the inner element only.
         const fade  = 1 - proxAnim;
         const scale = 1 + 0.10 * proxAnim;
-        const blur  = (12 * proxAnim).toFixed(2);
+        const blur  = (12 * proxBlurAnim).toFixed(2);
         nowCardInner.style.opacity   = fade.toFixed(3);
         nowCardInner.style.transform = `scale(${scale.toFixed(3)})`;
         nowCardInner.style.filter    = `blur(${blur}px)`;
