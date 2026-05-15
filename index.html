@@ -1441,10 +1441,12 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Flat fill: black with 60% opacity. Today's card stays at the
-        // same 60% so the warm rim + yellow text alone differentiate.
+        // Flat fill: black with 40% opacity. Today's card sits a touch
+        // more opaque so it reads as the dominant tile in the strip.
         roundRectPath();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.60)';
+        ctx.fillStyle = isToday
+          ? 'rgba(0, 0, 0, 0.58)'
+          : 'rgba(0, 0, 0, 0.40)';
         ctx.fill();
         // Noise grain inside the clipped shape. Use source-over with a
         // very low alpha (was 'overlay' which lifted pure black toward
@@ -1459,12 +1461,10 @@
           ctx.globalAlpha = 1;
           ctx.restore();
         }
-        // Rim outline — warm yellow on the today card, cool white on
-        // the rest. Slightly thicker for today.
+        // Rim outline — same white tone for every card, thicker on
+        // today so it picks up a subtle weight without color shift.
         roundRectPath();
-        ctx.strokeStyle = isToday
-          ? 'rgba(255, 211, 86, 0.95)'
-          : 'rgba(255, 255, 255, 0.55)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
         ctx.lineWidth = isToday ? 4 : 2.5;
         ctx.stroke();
         // Layout: day + date at top, big icon middle, hi/lo at bottom.
@@ -1474,11 +1474,13 @@
         ctx.fillStyle = '#ffffff';
         // Bigger day + date so they read at a glance from across the
         // room. Today's day label gets a warm tint to match the rim.
-        ctx.fillStyle = isToday ? '#FFD356' : '#ffffff';
-        ctx.font = 'bold 64px system-ui';
+        // Today gets a heavier font weight (900) instead of a color
+        // shift; date row stays the same shade everywhere.
+        ctx.fillStyle = '#ffffff';
+        ctx.font = (isToday ? '900' : 'bold') + ' 64px system-ui';
         ctx.fillText(day.dayLabel, W / 2, 72);
         ctx.font = '30px system-ui';
-        ctx.fillStyle = isToday ? 'rgba(255, 211, 86, 0.9)' : 'rgba(255, 255, 255, 0.88)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
         ctx.fillText(day.dateLabel, W / 2, 112);
         ctx.shadowBlur = 10;
         drawWeatherIcon(ctx, day.icon || 'cloud', W / 2, 220, 130);
