@@ -1235,7 +1235,7 @@
       // viewer). Diameter matches the diorama box width. Cards are
       // ~1/4 the box height and sit in the bottom third so the splat
       // tree above stays unobstructed.
-      const FORECAST_DAYS = 10;
+      const FORECAST_DAYS = 7;
       const FORECAST_ARC = (2 * Math.PI) / 3;            // 120° wrap around the viewer
       // Elliptical placement: X-radius = box half-width, Z-radius
       // capped by box depth so the front card doesn't poke past the
@@ -1247,7 +1247,9 @@
       const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.85;
       const FORECAST_RADIUS_Z = boxDepth * 0.70;
       const FORECAST_CENTRE_Z = -boxDepth * 0.5 - 0.10;   // pushed back ~4 inches
-      const FORECAST_CARD_H = screenGeom.heightMeters * 0.28;    // larger for legibility
+      // Bumped ~1.4x vs the 10-day layout to fill the wider gaps the
+      // 7-day count leaves along the same 120° arc.
+      const FORECAST_CARD_H = screenGeom.heightMeters * 0.39;
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
       const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.22;   // sits in lower band, larger
       const forecastCards = [];
