@@ -1975,7 +1975,7 @@
             modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
             delegate: 'GPU'
           },
-          runningMode: 'VIDEO', numHands: 1
+          runningMode: 'VIDEO', numHands: 2
         });
         return handLandmarker;
       }
@@ -2250,18 +2250,36 @@
       // smaller than face depth, and FOV ~= 2·atan(half_screen / Z).
       let _handLastSeenAt = 0;
       let _phoneCenterAnim = null;
-      // Throttled phone-object detection state. We rerun the detector
-      // every PHONE_DET_EVERY frames; the most recent positive
-      // detection survives for PHONE_DET_TTL_MS so a single dropped
-      // frame doesn't tear down the gate.
-      const PHONE_DET_EVERY  = 4;
-      const PHONE_DET_TTL_MS = 600;
+      // Hand-selection state. The cluster gate only fires when there
+      // are TWO hands on screen and we don't yet have a lock. Once a
+      // hand is locked, we follow it by spatial nearest-neighbor across
+      // frames; the lock releases only when zero hands are visible
+      // ('both hands lost').
+      const PHONE_DET_EVERY = 4;       // throttle for the cluster check
       let _phoneDetTickCounter = 0;
-      let _lastPhoneBox = null;       // {ox, oy, ow, oh} in 0..1 normalized
-      let _lastPhoneBoxAt = 0;
-      function rectsOverlap(a, b) {
-        return !(a.ox + a.ow < b.ox || b.ox + b.ow < a.ox ||
-                 a.oy + a.oh < b.oy || b.oy + b.oh < a.oy);
+      let _lockedHandBox = null;       // {ox, oy, ow, oh} in 0..1 normalized
+      function bboxOfHand(handLm) {
+        let mnx = 1, mny = 1, mxx = 0, mxy = 0;
+        for (const p of handLm) {
+          if (p.x < mnx) mnx = p.x;
+          if (p.x > mxx) mxx = p.x;
+          if (p.y < mny) mny = p.y;
+          if (p.y > mxy) mxy = p.y;
+        }
+        return { ox: mnx, oy: mny, ow: mxx - mnx, oh: mxy - mny };
+      }
+      function nearestHandTo(hands, refBox) {
+        const rcx = refBox.ox + refBox.ow / 2;
+        const rcy = refBox.oy + refBox.oh / 2;
+        let best = null, bestD = Infinity;
+        for (const h of hands) {
+          const bb = bboxOfHand(h);
+          const cx = bb.ox + bb.ow / 2;
+          const cy = bb.oy + bb.oh / 2;
+          const d = Math.hypot(cx - rcx, cy - rcy);
+          if (d < bestD) { bestD = d; best = h; }
+        }
+        return best;
       }
       function tickPhone() {
         if (video.readyState < 2) return;
@@ -2274,58 +2292,51 @@
         if (!handLandmarker) {
           ensureHandLandmarker().catch(e => console.warn(e));
         }
-        let handLm = null;
+        let hands = [];
         if (handLandmarker) {
           const r = handLandmarker.detectForVideo(video, now);
-          handLm = r?.landmarks?.[0] || null;
+          hands = r?.landmarks || [];
         }
-        if (!handLm) {
-          // No hand → freeze the eye AND reset filters so that when the
-          // hand reappears we don't blend across the gap and produce a
-          // sweep from the stale value to the new one.
+        if (hands.length === 0) {
+          // Both hands lost → drop the lock so the next acquisition
+          // re-runs the cluster gate.
+          _lockedHandBox = null;
           phoneFilters.camX.reset();
           phoneFilters.camY.reset();
           phoneFilters.depth.reset();
+          _handLastSeenAt = 0;
           faceStatusEl.textContent = 'phone (no hand)';
           return;
         }
-        // ---- Phone presence gate ----
-        // Look for the iPhone 16 Pro's 3-lens cluster inside the hand
-        // region. The detector is a small classical-CV pass (threshold
-        // + flood-fill) so it's cheap; we still throttle to every
-        // PHONE_DET_EVERY frames to keep CPU low and TTL the result so
-        // a single missed frame doesn't tear down the gate.
-        let hMinX = 1, hMinY = 1, hMaxX = 0, hMaxY = 0;
-        for (const p of handLm) {
-          if (p.x < hMinX) hMinX = p.x;
-          if (p.x > hMaxX) hMaxX = p.x;
-          if (p.y < hMinY) hMinY = p.y;
-          if (p.y > hMaxY) hMaxY = p.y;
+        // Pick which hand to track:
+        //   - 1 hand visible: track it; no cluster gate needed.
+        //   - 2 hands visible WITH lock: stick with the locked hand
+        //     (nearest neighbor to last lock position).
+        //   - 2 hands visible WITHOUT lock: run the cluster gate on
+        //     each hand region; lock to the one with the lens cluster.
+        let handLm = null;
+        if (hands.length === 1) {
+          handLm = hands[0];
+        } else if (_lockedHandBox) {
+          handLm = nearestHandTo(hands, _lockedHandBox);
+        } else {
+          if ((_phoneDetTickCounter++ % PHONE_DET_EVERY) === 0) {
+            for (const h of hands) {
+              try {
+                if (detectLensCluster(video, bboxOfHand(h))) { handLm = h; break; }
+              } catch (e) { /* swallow — detector hiccups shouldn't kill tracking */ }
+            }
+          }
+          if (!handLm) {
+            phoneFilters.camX.reset();
+            phoneFilters.camY.reset();
+            phoneFilters.depth.reset();
+            _handLastSeenAt = 0;
+            faceStatusEl.textContent = 'phone (lift the lens cluster)';
+            return;
+          }
         }
-        const handBox = { ox: hMinX, oy: hMinY, ow: hMaxX - hMinX, oh: hMaxY - hMinY };
-        if ((_phoneDetTickCounter++ % PHONE_DET_EVERY) === 0) {
-          try {
-            const cluster = detectLensCluster(video, handBox);
-            if (cluster) { _lastPhoneBox = cluster; _lastPhoneBoxAt = now; }
-          } catch (e) { /* swallow — detector hiccups shouldn't kill tracking */ }
-        }
-        const phoneFresh = _lastPhoneBox && (now - _lastPhoneBoxAt) < PHONE_DET_TTL_MS;
-        if (!phoneFresh) {
-          phoneFilters.camX.reset();
-          phoneFilters.camY.reset();
-          phoneFilters.depth.reset();
-          _handLastSeenAt = 0;
-          faceStatusEl.textContent = 'phone (no lens cluster)';
-          return;
-        }
-        if (!rectsOverlap(handBox, _lastPhoneBox)) {
-          phoneFilters.camX.reset();
-          phoneFilters.camY.reset();
-          phoneFilters.depth.reset();
-          _handLastSeenAt = 0;
-          faceStatusEl.textContent = 'phone (cluster not on hand)';
-          return;
-        }
+        _lockedHandBox = bboxOfHand(handLm);
         const vw = video.videoWidth, vh = video.videoHeight;
         let palmX = 0, palmY = 0;
         for (const idx of [5, 9, 13, 17]) { palmX += handLm[idx].x; palmY += handLm[idx].y; }
@@ -2406,8 +2417,11 @@
           phoneFilters.camY.reset();
           phoneFilters.depth.reset();
           // Force the auto-center to fire on the next tickPhone so the
-          // user lands at the same effective FOV as face mode.
+          // user lands at the same effective FOV as face mode. Drop the
+          // hand lock too so the cluster gate re-arms when 2 hands are
+          // visible at the start of a fresh phone session.
           _handLastSeenAt = 0;
+          _lockedHandBox = null;
           ensureHandLandmarker().catch(e => {
             faceStatusEl.textContent = 'hand model error';
             applyTrackingMode('face');
