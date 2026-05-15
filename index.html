@@ -1236,7 +1236,7 @@
       // ~1/4 the box height and sit in the bottom third so the splat
       // tree above stays unobstructed.
       const FORECAST_DAYS = 7;
-      const FORECAST_ARC = (2 * Math.PI) / 3;            // 120° wrap around the viewer
+      const FORECAST_ARC = Math.PI / 2;                  // 90° — tighter wrap, less gap between cards
       // Elliptical placement: X-radius = box half-width, Z-radius
       // capped by box depth so the front card doesn't poke past the
       // screen plane (which would put a card on top of the camera lens
@@ -1387,6 +1387,7 @@
         const ctx = tex.getContext();
         const W = 256, H = 384;
         const R = Math.max(0, Math.min(W * 0.5, panelStyle.radius));
+        const isToday = !!day.isToday;
         ctx.clearRect(0, 0, W, H);
         function roundRectPath() {
           ctx.beginPath();
@@ -1397,61 +1398,50 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Match the now-card's white-top -> black-mid -> black-bottom
-        // glass gradient. panelStyle.blur subtly tints the mid band
-        // darker so 'more blur' reads as 'more frosted'.
-        const midDark = Math.min(0.55, 0.30 + panelStyle.blur * 0.012);
+        // Flat translucent fill (no gradient) — lighter than the old
+        // black-mid gradient. Today's card gets a brighter body and a
+        // warm accent rim so it pops out of the strip.
         roundRectPath();
-        const body = ctx.createLinearGradient(0, 0, 0, H);
-        body.addColorStop(0,   'rgba(255, 255, 255, 0.18)');
-        body.addColorStop(0.5, `rgba(0, 0, 0, ${midDark.toFixed(3)})`);
-        body.addColorStop(1,   `rgba(0, 0, 0, ${(midDark * 0.82).toFixed(3)})`);
-        ctx.fillStyle = body;
+        ctx.fillStyle = isToday
+          ? 'rgba(255, 255, 255, 0.42)'
+          : 'rgba(255, 255, 255, 0.28)';
         ctx.fill();
-        // Inner top sheen (clipped to rounded shape).
-        ctx.save();
-        ctx.clip();
-        const sheen = ctx.createLinearGradient(0, 0, 0, 80);
-        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
-        sheen.addColorStop(1, 'rgba(255, 255, 255, 0.00)');
-        ctx.fillStyle = sheen;
-        ctx.fillRect(0, 0, W, 80);
-        // Specular catch on top-left corner — matches the now-card
-        // ::before pseudo's screen-blend radial gradients.
-        const spec1 = ctx.createRadialGradient(W * 0.18, 0, 0, W * 0.18, 0, W * 0.95);
-        spec1.addColorStop(0,    'rgba(255, 255, 255, 0.22)');
-        spec1.addColorStop(0.55, 'rgba(255, 255, 255, 0.00)');
-        ctx.fillStyle = spec1;
-        ctx.fillRect(0, 0, W, H);
-        // Noise grain — tied to the panel-grain slider, matching the
-        // ::after pseudo. Painted across the clipped rounded area.
+        // Noise grain inside the clipped shape.
         if (panelStyle.grain > 0) {
+          ctx.save();
+          ctx.clip();
           const pat = getNoisePattern(ctx);
-          ctx.globalAlpha = panelStyle.grain;
+          ctx.globalAlpha = panelStyle.grain * 0.7;
           ctx.globalCompositeOperation = 'overlay';
           ctx.fillStyle = pat;
           ctx.fillRect(0, 0, W, H);
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
+          ctx.restore();
         }
-        ctx.restore();
-        // Bright rim outline — matches the now-card's inset 1.2px white.
+        // Rim outline — warm yellow on the today card, cool white on
+        // the rest. Slightly thicker for today.
         roundRectPath();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = isToday
+          ? 'rgba(255, 211, 86, 0.95)'
+          : 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = isToday ? 4 : 2.5;
         ctx.stroke();
         // Layout: day + date at top, big icon middle, hi/lo at bottom.
         ctx.textAlign = 'center';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
         ctx.shadowBlur = 8;
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 46px system-ui';
-        ctx.fillText(day.dayLabel, W / 2, 60);
-        ctx.font = '24px system-ui';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.fillText(day.dateLabel, W / 2, 96);
+        // Bigger day + date so they read at a glance from across the
+        // room. Today's day label gets a warm tint to match the rim.
+        ctx.fillStyle = isToday ? '#FFD356' : '#ffffff';
+        ctx.font = 'bold 64px system-ui';
+        ctx.fillText(isToday ? 'Today' : day.dayLabel, W / 2, 72);
+        ctx.font = '30px system-ui';
+        ctx.fillStyle = isToday ? 'rgba(255, 211, 86, 0.9)' : 'rgba(255, 255, 255, 0.88)';
+        ctx.fillText(day.dateLabel, W / 2, 112);
         ctx.shadowBlur = 10;
-        drawWeatherIcon(ctx, day.icon || 'cloud', W / 2, 210, 130);
+        drawWeatherIcon(ctx, day.icon || 'cloud', W / 2, 220, 130);
         ctx.shadowBlur = 8;
         ctx.font = 'bold 52px system-ui';
         ctx.fillStyle = '#ffffff';
@@ -2794,6 +2784,7 @@
               icon: iconFromCode(d.daily.weather_code[i]),
               hi: Math.round(d.daily.temperature_2m_max[i]),
               lo: Math.round(d.daily.temperature_2m_min[i]),
+              isToday: i === 0,
             });
           }
           // Current
