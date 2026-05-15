@@ -1278,20 +1278,22 @@
       // contribute the depth that the DoF post pass needs.
       scene.setRenderingAutoClearDepthStencil(1, true, true, true);
       for (const { card } of forecastCards) card.renderingGroupId = 1;
-      // Weather Icons Pack v1.1 (Community) — Bulk variants, copied
-      // into ./weather-icons/. Map our internal type names to the
-      // pack's 5 base families. Pack doesn't ship plain "cloudy" or
-      // "fog", so cloud/fog/sun-cloud all reuse PartlyCloudy.
+      // Weather Icons Pack v1.1 (Community) — plain variants (the
+      // -Bulk and -Bold variants are pure-white silhouettes meant for
+      // tinting; only the no-suffix files ship with the pack's actual
+      // colors: yellow sun, blue drops, blue snowflake, yellow bolt).
+      // Pack doesn't ship plain "cloudy" or "fog", so cloud/fog/
+      // sun-cloud all reuse PartlyCloudy.
       const WEATHER_ICON_SRC = {
-        'sun':        'weather-icons/Sunny-Bulk.png',
-        'sun-cloud':  'weather-icons/PartlyCloudy-Bulk.png',
-        'cloud':      'weather-icons/PartlyCloudy-Bulk.png',
-        'fog':        'weather-icons/PartlyCloudy-Bulk.png',
-        'drizzle':    'weather-icons/Rainy-Bulk.png',
-        'rain':       'weather-icons/Rainy-Bulk.png',
-        'rain-heavy': 'weather-icons/Rainy-Bulk.png',
-        'snow':       'weather-icons/Snowy-Bulk.png',
-        'storm':      'weather-icons/RainThunder-Bulk.png',
+        'sun':        'weather-icons/Sunny.png',
+        'sun-cloud':  'weather-icons/PartlyCloudy.png',
+        'cloud':      'weather-icons/PartlyCloudy.png',
+        'fog':        'weather-icons/PartlyCloudy.png',
+        'drizzle':    'weather-icons/Rainy.png',
+        'rain':       'weather-icons/Rainy.png',
+        'rain-heavy': 'weather-icons/Rainy.png',
+        'snow':       'weather-icons/Snowy.png',
+        'storm':      'weather-icons/RainThunder.png',
       };
       const WEATHER_ICON_IMG = {};
       // Track whether all icons have loaded so we can repaint anything
