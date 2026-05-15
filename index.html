@@ -2091,6 +2091,14 @@
         camY:  new OneEuroFilter(1.2, 0.04),
         depth: new OneEuroFilter(0.8, 0.03),
       };
+      // Phone-mode equivalent of the face auto-center: when a hand is
+      // newly acquired (after a hand-loss gap), ease userScale and
+      // calibrationOffset so the hand-derived eye lands at targetDepth.
+      // Without this, phone mode's effective FOV drifts vs face mode
+      // because the absolute Z from hand pinhole projection is usually
+      // smaller than face depth, and FOV ~= 2·atan(half_screen / Z).
+      let _handLastSeenAt = 0;
+      let _phoneCenterAnim = null;
       function tickPhone() {
         if (video.readyState < 2) return;
         if (video.currentTime === lastVideoTime) return;
@@ -2139,12 +2147,39 @@
         const camX  = phoneFilters.camX.filter(camXRaw,  now);
         const camY  = phoneFilters.camY.filter(camYRaw,  now);
         const depth = phoneFilters.depth.filter(depthRaw, now);
+        // Auto-center on hand acquisition (mirror of the face path) so
+        // userScale + calibrationOffset settle on values that put the
+        // eye near targetDepth — keeps phone-mode FOV consistent with
+        // face mode.
+        if (now - _handLastSeenAt > FACE_LOST_GAP_MS) {
+          const targetScale = Math.max(0.2, Math.min(4,
+            targetDepth / Math.max(0.05, depth)));
+          _phoneCenterAnim = {
+            startMs: now,
+            durMs: CENTER_DURATION_MS,
+            fromX: calibrationOffset.x,
+            fromY: calibrationOffset.y,
+            toX: camX,
+            toY: camY,
+            fromScale: userScale,
+            toScale: targetScale,
+          };
+        }
+        _handLastSeenAt = now;
+        if (_phoneCenterAnim) {
+          const t = Math.min(1, (now - _phoneCenterAnim.startMs) / _phoneCenterAnim.durMs);
+          const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+          calibrationOffset.x = _phoneCenterAnim.fromX + (_phoneCenterAnim.toX - _phoneCenterAnim.fromX) * e;
+          calibrationOffset.y = _phoneCenterAnim.fromY + (_phoneCenterAnim.toY - _phoneCenterAnim.fromY) * e;
+          userScale            = _phoneCenterAnim.fromScale + (_phoneCenterAnim.toScale - _phoneCenterAnim.fromScale) * e;
+          if (t >= 1) _phoneCenterAnim = null;
+        }
         eye.set(
           webcamWorldPos.x + camX - calibrationOffset.x,
           webcamWorldPos.y + camY - calibrationOffset.y,
           webcamWorldPos.z + depth * userScale - calibrationOffset.z
         );
-        faceStatusEl.textContent = 'phone (hand)';
+        faceStatusEl.textContent = _phoneCenterAnim ? 'phone (centering…)' : 'phone (hand)';
       }
 
       // -------------------- Recenter --------------------
@@ -2169,10 +2204,17 @@
           phoneFilters.camX.reset();
           phoneFilters.camY.reset();
           phoneFilters.depth.reset();
+          // Force the auto-center to fire on the next tickPhone so the
+          // user lands at the same effective FOV as face mode.
+          _handLastSeenAt = 0;
           ensureHandLandmarker().catch(e => {
             faceStatusEl.textContent = 'hand model error';
             applyTrackingMode('face');
           });
+        } else if (mode === 'face') {
+          // Same trick for face mode — next tickFace will treat this as
+          // a fresh entry and re-run the 1-second center animation.
+          _faceLastSeenAt = 0;
         }
       }
       modeBtn.addEventListener('click', () => applyTrackingMode(trackingMode === 'face' ? 'phone' : 'face'));
