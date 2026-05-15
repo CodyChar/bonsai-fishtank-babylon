@@ -1440,10 +1440,11 @@
           ctx.closePath();
         }
         // Flat fill: dark glass for the rest of the week, frosted
-        // white for today so it reads as the brighter, dominant tile.
+        // white for today — bumped to read clearly brighter than the
+        // surrounding tiles in the strip.
         roundRectPath();
         ctx.fillStyle = isToday
-          ? 'rgba(255, 255, 255, 0.22)'
+          ? 'rgba(255, 255, 255, 0.45)'
           : 'rgba(0, 0, 0, 0.40)';
         ctx.fill();
         // Noise grain inside the clipped shape. Use source-over with a
@@ -1957,6 +1958,16 @@
         } catch (e) { console.warn(e); }
       }
 
+      // Auto-recenter: when a face newly enters the camera's view (i.e.
+      // we haven't seen one for FACE_LOST_GAP_MS), begin a 1-second
+      // eased animation of calibrationOffset toward the face position.
+      // The eye is derived as (raw - calibrationOffset) every frame, so
+      // animating calibrationOffset smoothly drags the camera to its
+      // new spot rather than snapping there.
+      const FACE_LOST_GAP_MS = 250;
+      const CENTER_DURATION_MS = 1000;
+      let _faceLastSeenAt = 0;
+      let _centerAnim = null;   // { startMs, durMs, fromX, fromY, toX, toY }
       function tickFace() {
         if (xrInVR) return;  // headset drives camera in immersive mode
         if (!tracking || video.readyState < 2) return;
@@ -1980,6 +1991,37 @@
           const camX = -tx * u;
           const camY =  ty * u;
           const camZ = Math.abs(tz) * u;
+          // Detect "face just appeared" and arm the auto-center
+          // animation. The target offset (camX, camY, 0) matches what
+          // the manual Recenter button would set.
+          const nowMs = performance.now();
+          if (nowMs - _faceLastSeenAt > FACE_LOST_GAP_MS) {
+            _centerAnim = {
+              startMs: nowMs,
+              durMs: CENTER_DURATION_MS,
+              fromX: calibrationOffset.x,
+              fromY: calibrationOffset.y,
+              toX: camX,
+              toY: camY,
+            };
+            // Match the manual Recenter's userScale rebake so the depth
+            // also lands correctly at the end of the transition.
+            const camZc = Math.max(0.05, camZ);
+            const targetScale = Math.max(0.2, Math.min(4, targetDepth / camZc));
+            _centerAnim.fromScale = userScale;
+            _centerAnim.toScale   = targetScale;
+          }
+          _faceLastSeenAt = nowMs;
+          // Drive the active animation. easeInOutQuad over the 1-sec
+          // window; calibrationOffset + userScale ease together.
+          if (_centerAnim) {
+            const t = Math.min(1, (nowMs - _centerAnim.startMs) / _centerAnim.durMs);
+            const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+            calibrationOffset.x = _centerAnim.fromX + (_centerAnim.toX - _centerAnim.fromX) * e;
+            calibrationOffset.y = _centerAnim.fromY + (_centerAnim.toY - _centerAnim.fromY) * e;
+            userScale            = _centerAnim.fromScale + (_centerAnim.toScale - _centerAnim.fromScale) * e;
+            if (t >= 1) _centerAnim = null;
+          }
           const wx = webcamWorldPos.x + camX;
           const wy = webcamWorldPos.y + camY;
           const wz = webcamWorldPos.z + camZ * userScale;
@@ -1988,7 +2030,7 @@
             wy - calibrationOffset.y,
             wz - calibrationOffset.z
           );
-          faceStatusEl.textContent = 'tracking';
+          faceStatusEl.textContent = _centerAnim ? 'centering…' : 'tracking';
         }
         // Preview dot
         const rIris = lm[468], lIris = lm[473];
