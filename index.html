@@ -144,7 +144,7 @@
         opacity: var(--panel-grain);
         mix-blend-mode: overlay;
       }
-      #now-card .now-loc { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; margin-bottom: 22px; font-weight: 500; }
+      #now-card .now-loc { font-size: 32px; letter-spacing: .08em; text-transform: uppercase; opacity: .95; margin-bottom: 24px; font-weight: 600; line-height: 1.05; }
       #now-card .now-main {
         display: flex; align-items: center; gap: 12px;
         margin-bottom: 6px;
@@ -281,7 +281,7 @@
 
     <div id="now-card" aria-live="polite">
       <div class="now-card-inner">
-        <div class="now-loc">Snohomish · WA</div>
+        <div class="now-loc">Seattle · WA</div>
         <div class="now-main">
           <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
           <div class="now-temp">—</div>
@@ -2731,7 +2731,7 @@
       // Current goes into the screen-space #now-card; daily 0..9 goes
       // into the 3D curved carousel.
       (async function loadWeather() {
-        const LAT = 47.91, LON = -122.10;
+        const LAT = 47.6062, LON = -122.3321;   // Seattle, WA
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
           `&current=temperature_2m,weather_code` +
           `&daily=temperature_2m_max,temperature_2m_min,weather_code` +
@@ -2805,7 +2805,7 @@
             `<span>H ${Math.round(d.daily.temperature_2m_max[0])}°</span>` +
             `<span>L ${Math.round(d.daily.temperature_2m_min[0])}°</span>`;
           paintNowIcon(iconFromCode(d.current.weather_code));
-          console.info('[weather] current + 10-day forecast loaded for Snohomish');
+          console.info('[weather] current + 10-day forecast loaded for Seattle');
         } catch (e) {
           console.warn('[weather] fetch failed —', e.message);
           forecastCards.forEach((slot) => paintForecastCard(slot, {
