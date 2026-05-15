@@ -144,12 +144,22 @@
         opacity: var(--panel-grain);
         mix-blend-mode: overlay;
       }
-      #now-card .now-loc  { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .88; margin-bottom: 16px; font-weight: 500; }
-      #now-card .now-day  { font-size: 28px; font-weight: 600; line-height: 1.1; }
-      #now-card .now-date { font-size: 15px; opacity: .82; margin-top: 6px; margin-bottom: 36px; }
-      #now-card .now-temp { font-size: 84px; font-weight: 200; line-height: 1; margin-bottom: 22px; letter-spacing: -0.03em; }
-      #now-card .now-cond { font-size: 20px; opacity: 1; margin-bottom: 36px; font-weight: 500; }
-      #now-card .now-hilo { display: flex; gap: 26px; font-size: 17px; opacity: .88; font-weight: 500; }
+      #now-card .now-loc { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; margin-bottom: 22px; font-weight: 500; }
+      #now-card .now-main {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 6px;
+      }
+      #now-card .now-icon { width: 110px; height: 110px; flex: 0 0 auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
+      #now-card .now-temp { font-size: 86px; font-weight: 200; line-height: 1; letter-spacing: -0.04em; flex: 1; text-align: right; }
+      #now-card .now-cond { font-size: 20px; font-weight: 500; opacity: .95; margin-bottom: 26px; }
+      #now-card .now-meta {
+        display: flex; justify-content: space-between; align-items: baseline;
+        padding-top: 18px;
+        border-top: 1px solid rgba(255,255,255,0.22);
+      }
+      #now-card .now-meta-day { font-size: 16px; font-weight: 600; opacity: .92; }
+      #now-card .now-date { font-size: 14px; opacity: .65; font-weight: 400; margin-left: 8px; }
+      #now-card .now-hilo { display: flex; gap: 18px; font-size: 15px; opacity: .82; font-weight: 500; }
       body.ui-hidden #now-card { /* stays visible — weather is always on */ }
 
 
@@ -272,11 +282,15 @@
     <div id="now-card" aria-live="polite">
       <div class="now-card-inner">
         <div class="now-loc">Snohomish · WA</div>
-        <div class="now-day">Today</div>
-        <div class="now-date">—</div>
-        <div class="now-temp">—</div>
+        <div class="now-main">
+          <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
+          <div class="now-temp">—</div>
+        </div>
         <div class="now-cond">Loading…</div>
-        <div class="now-hilo"><span>H —</span><span>L —</span></div>
+        <div class="now-meta">
+          <div class="now-meta-day">Today<span class="now-date">—</span></div>
+          <div class="now-hilo"><span>H —</span><span>L —</span></div>
+        </div>
       </div>
     </div>
 
@@ -761,11 +775,10 @@
       let _splatScalesBuf = null;
       let _splatDoFActive = false;
       let _splatDoFRefresh = null;   // function or null — re-upload hook
-      // EXPERIMENTAL — per-gaussian DoF tested via _splatsData but the
-      // available refresh methods (_updateData / _rebuild / _updateTextures)
-      // appear to corrupt / blank the splat when called per-frame with
-      // mutated buffers. Gated off until we find a non-destructive sync.
-      const ENABLE_PER_GAUSSIAN_DOF = false;
+      // Per-gaussian DoF via the public updateData(buffer, undefined,
+      // { flipY: false }) sync path. flipY=false is required on
+      // Babylon 9.x or every refresh flips the splat upside down.
+      const ENABLE_PER_GAUSSIAN_DOF = true;
       // World-Z plane in front of the screen at which the splat is
       // sliced. Live-bound to the Splat clip slider. Default 5 cm.
       let splatForwardClipM = 0.05;
@@ -1019,11 +1032,23 @@
                   _splatOrigScales[i*3+1] = data[si + 4];
                   _splatOrigScales[i*3+2] = data[si + 5];
                 }
-                // Refresh-hook discovery is left in place for future
-                // work, but the per-frame call is now gated by
-                // ENABLE_PER_GAUSSIAN_DOF — calling these per-frame
-                // corrupts the splat (renders black).
-                _splatDoFRefresh = null;
+                // Public sync per the Babylon 9.x API: pass the raw
+                // buffer + undefined parsedData + { flipY: false } to
+                // avoid the upside-down quirk that bites if you omit
+                // the options. We capture the ArrayBuffer reference
+                // once; the Float32Array view _splatScalesBuf shares
+                // its memory.
+                const rawBuf = splatMesh._splatsData;
+                if (typeof splatMesh.updateData === 'function' && rawBuf) {
+                  _splatDoFRefresh = () => {
+                    try { splatMesh.updateData(rawBuf, undefined, { flipY: false }); }
+                    catch (e) { console.warn('[splat-dof] updateData failed:', e.message); }
+                  };
+                  console.info('[splat-dof] refresh hook -> public updateData(buffer, undefined, { flipY: false })');
+                } else {
+                  _splatDoFRefresh = null;
+                  console.warn('[splat-dof] updateData not available');
+                }
                 console.info('[splat-dof] per-gaussian DoF armed; backed up', count, 'scales');
               } else {
                 _splatPositionsBuf = _splatScalesBuf = _splatOrigScales = null;
@@ -1203,9 +1228,9 @@
       const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.5;
       const FORECAST_RADIUS_Z = boxDepth * 0.42;
       const FORECAST_CENTRE_Z = -boxDepth * 0.5 - 0.10;   // pushed back ~4 inches
-      const FORECAST_CARD_H = screenGeom.heightMeters * 0.175;   // 30% shorter than before
+      const FORECAST_CARD_H = screenGeom.heightMeters * 0.28;    // larger for legibility
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
-      const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.27;  // bottom-third centre
+      const FORECAST_CARD_Y = -screenGeom.heightMeters * 0.22;   // sits in lower band, larger
       const forecastCards = [];
       // Parent for all forecast cards — keeps the Inspector hierarchy
       // tidy and lets them be moved/scaled as a unit.
@@ -1249,7 +1274,8 @@
       // contribute the depth that the DoF post pass needs.
       scene.setRenderingAutoClearDepthStencil(1, true, true, true);
       for (const { card } of forecastCards) card.renderingGroupId = 1;
-      function drawCloud(ctx, cx, cy, r) {
+      function drawCloud(ctx, cx, cy, r, fill) {
+        if (fill) ctx.fillStyle = fill;
         ctx.beginPath();
         ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
         ctx.arc(cx + r * 0.55, cy + r * 0.20, r * 0.42, 0, Math.PI * 2);
@@ -1257,14 +1283,40 @@
         ctx.rect(cx - r * 0.55, cy + r * 0.10, r * 1.1, r * 0.55);
         ctx.fill();
       }
+      // Palette per icon kind so sun reads as warm, rain reads as cool, etc.
+      const ICON_COLORS = {
+        sun:        { fg: '#FFC847', bg: '#FFFFFF' },
+        sunCloud:   { fg: '#FFC847', bg: '#F0F4FA' },
+        cloud:      { fg: '#E2E9F3', bg: '#E2E9F3' },
+        fog:        { fg: '#C9D1DD', bg: '#D5DDEA' },
+        drizzle:    { fg: '#6FB4FF', bg: '#E2E9F3' },
+        rain:       { fg: '#3A9CFF', bg: '#D5DDEA' },
+        rainHeavy:  { fg: '#1A6FCC', bg: '#C2CCDC' },
+        snow:       { fg: '#FFFFFF', bg: '#E8EEF7' },
+        storm:      { fg: '#FFD93D', bg: '#8694A8' },
+      };
       function drawWeatherIcon(ctx, type, cx, cy, s) {
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.fillStyle = 'rgba(255,255,255,0.95)';
-        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-        ctx.lineWidth = 5;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        // Pick a palette for the icon family.
+        const paletteKey =
+          type === 'sun' ? 'sun' :
+          type === 'sun-cloud' ? 'sunCloud' :
+          type === 'cloud' ? 'cloud' :
+          type === 'fog' ? 'fog' :
+          type === 'snow' ? 'snow' :
+          type === 'storm' ? 'storm' :
+          type === 'rain-heavy' ? 'rainHeavy' :
+          type === 'rain' ? 'rain' :
+          type === 'drizzle' ? 'drizzle' : 'cloud';
+        const palette = ICON_COLORS[paletteKey];
+        const fg = palette.fg;   // accent (sun, rays, drops, bolt)
+        const bg = palette.bg;   // cloud/fog body
+        ctx.fillStyle = fg;
+        ctx.strokeStyle = fg;
+        ctx.lineWidth = 5;
         switch (type) {
           case 'sun': {
             ctx.beginPath();
@@ -1280,6 +1332,7 @@
             break;
           }
           case 'sun-cloud': {
+            // Sun first, then cloud overlapping in front.
             ctx.beginPath();
             ctx.arc(-s * 0.22, -s * 0.18, s * 0.20, 0, Math.PI * 2);
             ctx.fill();
@@ -1290,12 +1343,13 @@
               ctx.lineTo(-s * 0.22 + Math.cos(a) * s * 0.36, -s * 0.18 + Math.sin(a) * s * 0.36);
               ctx.stroke();
             }
-            drawCloud(ctx, s * 0.12, s * 0.08, s * 0.42);
+            drawCloud(ctx, s * 0.12, s * 0.08, s * 0.42, bg);
             break;
           }
-          case 'cloud':   drawCloud(ctx, 0, 0, s * 0.52); break;
+          case 'cloud': drawCloud(ctx, 0, 0, s * 0.52, bg); break;
           case 'fog': {
-            drawCloud(ctx, 0, -s * 0.22, s * 0.42);
+            drawCloud(ctx, 0, -s * 0.22, s * 0.42, bg);
+            ctx.strokeStyle = fg;
             for (let i = 0; i < 3; i++) {
               ctx.beginPath();
               ctx.moveTo(-s * 0.34, s * 0.10 + i * s * 0.14);
@@ -1307,7 +1361,8 @@
           case 'drizzle':
           case 'rain':
           case 'rain-heavy': {
-            drawCloud(ctx, 0, -s * 0.18, s * 0.45);
+            drawCloud(ctx, 0, -s * 0.18, s * 0.45, bg);
+            ctx.fillStyle = fg;
             const drops = type === 'rain-heavy' ? 4 : 3;
             const dr = type === 'drizzle' ? s * 0.06 : s * 0.10;
             for (let i = 0; i < drops; i++) {
@@ -1319,7 +1374,8 @@
             break;
           }
           case 'snow': {
-            drawCloud(ctx, 0, -s * 0.18, s * 0.45);
+            drawCloud(ctx, 0, -s * 0.18, s * 0.45, bg);
+            ctx.fillStyle = fg;
             for (let i = 0; i < 3; i++) {
               ctx.beginPath();
               ctx.arc((i - 1) * s * 0.22, s * 0.30, s * 0.06, 0, Math.PI * 2);
@@ -1328,7 +1384,8 @@
             break;
           }
           case 'storm': {
-            drawCloud(ctx, 0, -s * 0.20, s * 0.45);
+            drawCloud(ctx, 0, -s * 0.20, s * 0.45, bg);
+            ctx.fillStyle = fg;
             ctx.beginPath();
             ctx.moveTo(-s * 0.06, s * 0.05);
             ctx.lineTo( s * 0.10, s * 0.15);
@@ -1340,7 +1397,7 @@
             ctx.fill();
             break;
           }
-          default: drawCloud(ctx, 0, 0, s * 0.50);
+          default: drawCloud(ctx, 0, 0, s * 0.50, bg);
         }
         ctx.restore();
       }
@@ -2726,11 +2783,19 @@
           return 'storm';
         };
         const nowCard = {
-          day:  document.querySelector('#now-card .now-day'),
+          day:  document.querySelector('#now-card .now-meta-day'),
           date: document.querySelector('#now-card .now-date'),
           temp: document.querySelector('#now-card .now-temp'),
           cond: document.querySelector('#now-card .now-cond'),
           hilo: document.querySelector('#now-card .now-hilo'),
+          icon: document.querySelector('#now-card .now-icon'),
+        };
+        const paintNowIcon = (iconType) => {
+          const c = nowCard.icon;
+          if (!c) return;
+          const ictx = c.getContext('2d');
+          ictx.clearRect(0, 0, c.width, c.height);
+          drawWeatherIcon(ictx, iconType || 'cloud', c.width / 2, c.height / 2, c.width * 0.85);
         };
         try {
           const res = await fetch(url);
@@ -2750,13 +2815,15 @@
           }
           // Current
           const today = new Date(d.daily.time[0] + 'T00:00');
-          nowCard.day.textContent  = today.toLocaleDateString('en-US', { weekday: 'long' });
-          nowCard.date.textContent = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+          const todayDay = today.toLocaleDateString('en-US', { weekday: 'long' });
+          const todayDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          nowCard.day.innerHTML  = todayDay + `<span class="now-date">${todayDate}</span>`;
           nowCard.temp.textContent = Math.round(d.current.temperature_2m) + '°';
           nowCard.cond.textContent = condFromCode(d.current.weather_code);
           nowCard.hilo.innerHTML =
             `<span>H ${Math.round(d.daily.temperature_2m_max[0])}°</span>` +
             `<span>L ${Math.round(d.daily.temperature_2m_min[0])}°</span>`;
+          paintNowIcon(iconFromCode(d.current.weather_code));
           console.info('[weather] current + 10-day forecast loaded for Snohomish');
         } catch (e) {
           console.warn('[weather] fetch failed —', e.message);
@@ -2764,6 +2831,7 @@
             dayLabel: '—', dateLabel: '—', cond: 'Offline', icon: 'cloud', hi: '—', lo: '—',
           }));
           if (nowCard.cond) nowCard.cond.textContent = 'Offline';
+          paintNowIcon('cloud');
         }
       })();
 
@@ -2920,7 +2988,9 @@
               const wm = splatMesh.getWorldMatrix();
               const focalWorldZ = camera.position.z - focusM;
               const dofStrength = Math.max(0, Math.min(1, (16 - pipeline.depthOfField.fStop) / 15.5));
-              const k = 50 * dofStrength;   // scales are linear; tame multiplier
+              const k = 8 * dofStrength;   // linear scale multiplier
+              // Clamp blur factor so wide bboxes don't explode scales.
+              const MAX_BLUR = 12;
               const m02 = wm.m[2], m06 = wm.m[6], m10 = wm.m[10], m14 = wm.m[14];
               const orig = _splatOrigScales;
               for (let i = 0; i < count; i++) {
@@ -2928,8 +2998,8 @@
                 const worldZ = m02 * pos[i4] + m06 * pos[i4+1] + m10 * pos[i4+2] + m14;
                 const d = worldZ - focalWorldZ;
                 // Linear scales: multiply by (1 + k * d²) to bloom
-                // out-of-focus gaussians.
-                const blur = 1 + k * d * d;
+                // out-of-focus gaussians. Clamped to avoid runaway.
+                const blur = Math.min(MAX_BLUR, 1 + k * d * d);
                 const si = i * stride;
                 data[si + 3] = orig[i*3+0] * blur;
                 data[si + 4] = orig[i*3+1] * blur;
