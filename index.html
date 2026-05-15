@@ -1460,10 +1460,12 @@
           ctx.globalAlpha = 1;
           ctx.restore();
         }
-        // Rim outline — same white tone for every card, thicker on
-        // today so it picks up a subtle weight without color shift.
+        // Rim outline — soft white on the regular cards, full white
+        // on today so the stroke alone marks it out.
         roundRectPath();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.strokeStyle = isToday
+          ? 'rgba(255, 255, 255, 1.0)'
+          : 'rgba(255, 255, 255, 0.55)';
         ctx.lineWidth = isToday ? 4 : 2.5;
         ctx.stroke();
         // Layout: day + date at top, big icon middle, hi/lo at bottom.
