@@ -775,10 +775,14 @@
       let _splatScalesBuf = null;
       let _splatDoFActive = false;
       let _splatDoFRefresh = null;   // function or null — re-upload hook
-      // Per-gaussian DoF via the public updateData(buffer, undefined,
-      // { flipY: false }) sync path. flipY=false is required on
-      // Babylon 9.x or every refresh flips the splat upside down.
-      const ENABLE_PER_GAUSSIAN_DOF = true;
+      // Per-gaussian DoF is gated off — the scale-only modification
+      // makes out-of-focus splats grow into visible blobs rather than
+      // producing a smooth blur, which doesn't match the macro-lens
+      // look we want. Scene DoF + depth proxy is what's running now.
+      // Flip back to true if you want to revisit the experiment; all
+      // diagnostic / buffer-probe / refresh-hook plumbing stays in
+      // place behind this flag.
+      const ENABLE_PER_GAUSSIAN_DOF = false;
       // World-Z plane in front of the screen at which the splat is
       // sliced. Live-bound to the Splat clip slider. Default 5 cm.
       let splatForwardClipM = 0.05;
