@@ -1278,131 +1278,57 @@
       // contribute the depth that the DoF post pass needs.
       scene.setRenderingAutoClearDepthStencil(1, true, true, true);
       for (const { card } of forecastCards) card.renderingGroupId = 1;
-      function drawCloud(ctx, cx, cy, r, fill) {
-        if (fill) ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.arc(cx - r * 0.55, cy + r * 0.20, r * 0.45, 0, Math.PI * 2);
-        ctx.arc(cx + r * 0.55, cy + r * 0.20, r * 0.42, 0, Math.PI * 2);
-        ctx.arc(cx,            cy - r * 0.05, r * 0.55, 0, Math.PI * 2);
-        ctx.rect(cx - r * 0.55, cy + r * 0.10, r * 1.1, r * 0.55);
-        ctx.fill();
-      }
-      // Palette per icon kind so sun reads as warm, rain reads as cool, etc.
-      const ICON_COLORS = {
-        sun:        { fg: '#FFC847', bg: '#FFFFFF' },
-        sunCloud:   { fg: '#FFC847', bg: '#F0F4FA' },
-        cloud:      { fg: '#E2E9F3', bg: '#E2E9F3' },
-        fog:        { fg: '#C9D1DD', bg: '#D5DDEA' },
-        drizzle:    { fg: '#6FB4FF', bg: '#E2E9F3' },
-        rain:       { fg: '#3A9CFF', bg: '#D5DDEA' },
-        rainHeavy:  { fg: '#1A6FCC', bg: '#C2CCDC' },
-        snow:       { fg: '#FFFFFF', bg: '#E8EEF7' },
-        storm:      { fg: '#FFD93D', bg: '#8694A8' },
+      // Weather Icons Pack v1.1 (Community) — Bulk variants, copied
+      // into ./weather-icons/. Map our internal type names to the
+      // pack's 5 base families. Pack doesn't ship plain "cloudy" or
+      // "fog", so cloud/fog/sun-cloud all reuse PartlyCloudy.
+      const WEATHER_ICON_SRC = {
+        'sun':        'weather-icons/Sunny-Bulk.png',
+        'sun-cloud':  'weather-icons/PartlyCloudy-Bulk.png',
+        'cloud':      'weather-icons/PartlyCloudy-Bulk.png',
+        'fog':        'weather-icons/PartlyCloudy-Bulk.png',
+        'drizzle':    'weather-icons/Rainy-Bulk.png',
+        'rain':       'weather-icons/Rainy-Bulk.png',
+        'rain-heavy': 'weather-icons/Rainy-Bulk.png',
+        'snow':       'weather-icons/Snowy-Bulk.png',
+        'storm':      'weather-icons/RainThunder-Bulk.png',
       };
+      const WEATHER_ICON_IMG = {};
+      // Track whether all icons have loaded so we can repaint anything
+      // that tried to draw before they were ready.
+      let _weatherIconsReady = false;
+      let _weatherIconsPending = 0;
+      const _onWeatherIconsReady = [];
+      // Hoisted cache of the most recent now-card icon paint so the
+      // ready-callback can re-fire it. paintNowIcon is declared inside
+      // the loadWeather IIFE; these module-scope vars give the hook
+      // a way back into its state.
+      let _lastNowIcon = null;
+      let _nowIconCanvas = null;
+      for (const [type, src] of Object.entries(WEATHER_ICON_SRC)) {
+        const cached = WEATHER_ICON_IMG[src];
+        if (cached) { WEATHER_ICON_IMG[type] = cached; continue; }
+        const img = new Image();
+        WEATHER_ICON_IMG[src] = img;
+        WEATHER_ICON_IMG[type] = img;
+        _weatherIconsPending++;
+        const done = () => {
+          if (--_weatherIconsPending === 0) {
+            _weatherIconsReady = true;
+            for (const cb of _onWeatherIconsReady.splice(0)) try { cb(); } catch {}
+          }
+        };
+        img.onload = done;
+        img.onerror = () => { console.warn('[weather] icon load failed:', src); done(); };
+        img.src = src;
+      }
       function drawWeatherIcon(ctx, type, cx, cy, s) {
+        const img = WEATHER_ICON_IMG[type] || WEATHER_ICON_IMG['cloud'];
+        if (!img || !img.complete || !img.naturalWidth) return;
         ctx.save();
-        ctx.translate(cx, cy);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        // Pick a palette for the icon family.
-        const paletteKey =
-          type === 'sun' ? 'sun' :
-          type === 'sun-cloud' ? 'sunCloud' :
-          type === 'cloud' ? 'cloud' :
-          type === 'fog' ? 'fog' :
-          type === 'snow' ? 'snow' :
-          type === 'storm' ? 'storm' :
-          type === 'rain-heavy' ? 'rainHeavy' :
-          type === 'rain' ? 'rain' :
-          type === 'drizzle' ? 'drizzle' : 'cloud';
-        const palette = ICON_COLORS[paletteKey];
-        const fg = palette.fg;   // accent (sun, rays, drops, bolt)
-        const bg = palette.bg;   // cloud/fog body
-        ctx.fillStyle = fg;
-        ctx.strokeStyle = fg;
-        ctx.lineWidth = 5;
-        switch (type) {
-          case 'sun': {
-            ctx.beginPath();
-            ctx.arc(0, 0, s * 0.30, 0, Math.PI * 2);
-            ctx.fill();
-            for (let i = 0; i < 8; i++) {
-              const a = (i / 8) * Math.PI * 2;
-              ctx.beginPath();
-              ctx.moveTo(Math.cos(a) * s * 0.42, Math.sin(a) * s * 0.42);
-              ctx.lineTo(Math.cos(a) * s * 0.56, Math.sin(a) * s * 0.56);
-              ctx.stroke();
-            }
-            break;
-          }
-          case 'sun-cloud': {
-            // Sun first, then cloud overlapping in front.
-            ctx.beginPath();
-            ctx.arc(-s * 0.22, -s * 0.18, s * 0.20, 0, Math.PI * 2);
-            ctx.fill();
-            for (let i = 0; i < 6; i++) {
-              const a = (i / 6) * Math.PI * 2;
-              ctx.beginPath();
-              ctx.moveTo(-s * 0.22 + Math.cos(a) * s * 0.26, -s * 0.18 + Math.sin(a) * s * 0.26);
-              ctx.lineTo(-s * 0.22 + Math.cos(a) * s * 0.36, -s * 0.18 + Math.sin(a) * s * 0.36);
-              ctx.stroke();
-            }
-            drawCloud(ctx, s * 0.12, s * 0.08, s * 0.42, bg);
-            break;
-          }
-          case 'cloud': drawCloud(ctx, 0, 0, s * 0.52, bg); break;
-          case 'fog': {
-            drawCloud(ctx, 0, -s * 0.22, s * 0.42, bg);
-            ctx.strokeStyle = fg;
-            for (let i = 0; i < 3; i++) {
-              ctx.beginPath();
-              ctx.moveTo(-s * 0.34, s * 0.10 + i * s * 0.14);
-              ctx.lineTo( s * 0.34, s * 0.10 + i * s * 0.14);
-              ctx.stroke();
-            }
-            break;
-          }
-          case 'drizzle':
-          case 'rain':
-          case 'rain-heavy': {
-            drawCloud(ctx, 0, -s * 0.18, s * 0.45, bg);
-            ctx.fillStyle = fg;
-            const drops = type === 'rain-heavy' ? 4 : 3;
-            const dr = type === 'drizzle' ? s * 0.06 : s * 0.10;
-            for (let i = 0; i < drops; i++) {
-              const x = (i - (drops - 1) / 2) * (s * 0.20);
-              ctx.beginPath();
-              ctx.ellipse(x, s * 0.30, dr * 0.45, dr, 0, 0, Math.PI * 2);
-              ctx.fill();
-            }
-            break;
-          }
-          case 'snow': {
-            drawCloud(ctx, 0, -s * 0.18, s * 0.45, bg);
-            ctx.fillStyle = fg;
-            for (let i = 0; i < 3; i++) {
-              ctx.beginPath();
-              ctx.arc((i - 1) * s * 0.22, s * 0.30, s * 0.06, 0, Math.PI * 2);
-              ctx.fill();
-            }
-            break;
-          }
-          case 'storm': {
-            drawCloud(ctx, 0, -s * 0.20, s * 0.45, bg);
-            ctx.fillStyle = fg;
-            ctx.beginPath();
-            ctx.moveTo(-s * 0.06, s * 0.05);
-            ctx.lineTo( s * 0.10, s * 0.15);
-            ctx.lineTo(-s * 0.04, s * 0.18);
-            ctx.lineTo( s * 0.12, s * 0.40);
-            ctx.lineTo(-s * 0.02, s * 0.22);
-            ctx.lineTo( s * 0.04, s * 0.20);
-            ctx.closePath();
-            ctx.fill();
-            break;
-          }
-          default: drawCloud(ctx, 0, 0, s * 0.50, bg);
-        }
+        // Square draw centered on (cx, cy), size s — matches the old
+        // procedural icons' visual footprint.
+        ctx.drawImage(img, cx - s / 2, cy - s / 2, s, s);
         ctx.restore();
       }
       // Global panel style — read by paintForecastCard so the 3D cards
@@ -1532,6 +1458,20 @@
       forecastCards.forEach((slot) =>
         paintForecastCard(slot, { dayLabel: '—', dateLabel: '—', cond: 'Loading…', icon: 'cloud', hi: '—', lo: '—' })
       );
+      // PNG weather icons load async; once they're ready, repaint any
+      // cards (and the now-card) that drew before the images existed.
+      if (!_weatherIconsReady) {
+        _onWeatherIconsReady.push(() => {
+          repaintAllForecastCards();
+          if (_nowIconCanvas && _lastNowIcon) {
+            const ictx = _nowIconCanvas.getContext('2d');
+            ictx.clearRect(0, 0, _nowIconCanvas.width, _nowIconCanvas.height);
+            drawWeatherIcon(ictx, _lastNowIcon,
+              _nowIconCanvas.width / 2, _nowIconCanvas.height / 2,
+              _nowIconCanvas.width * 0.85);
+          }
+        });
+      }
 
       // -------------------- Skylight source (volumetric emitter) --------------------
       // A tiny emissive disc at the upper-right of the ceiling that
@@ -2800,6 +2740,8 @@
           const ictx = c.getContext('2d');
           ictx.clearRect(0, 0, c.width, c.height);
           drawWeatherIcon(ictx, iconType || 'cloud', c.width / 2, c.height / 2, c.width * 0.85);
+          _lastNowIcon = iconType || 'cloud';
+          _nowIconCanvas = c;
         };
         try {
           const res = await fetch(url);
