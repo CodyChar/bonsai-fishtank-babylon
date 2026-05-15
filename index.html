@@ -497,7 +497,17 @@
       const eye = new BJS.Vector3(0, 0, 0.61);
       const eyeSmoothed = eye.clone();
       const calibrationOffset = new BJS.Vector3(0, 0, 0);
-      const webcamWorldPos = new BJS.Vector3(0, screenGeom.heightMeters / 2, 0);
+      // Physical webcam offset above the top lip of the screen — the
+      // hardware on this rig sits 3.5" above the bezel. Total Y above
+      // screen center is screenGeom.heightMeters / 2 (to the top lip)
+      // plus this constant. Kept in meters so resize handlers can
+      // rebake the value without unit conversion.
+      const WEBCAM_ABOVE_SCREEN_TOP_M = 3.5 * 0.0254;   // 3.5 in
+      const webcamWorldPos = new BJS.Vector3(
+        0,
+        screenGeom.heightMeters / 2 + WEBCAM_ABOVE_SCREEN_TOP_M,
+        0
+      );
       let userScale = 1.68;
       let targetDepth = 0.61;
       let camHeight = -0.05;
@@ -1882,7 +1892,10 @@
       let lastVideoTime = -1;
       let _matrixLogged = false;
       let trackingMode = localStorage.getItem('bonsaiBabylonMode') || 'face';
-      const ASSUMED_HFOV_DEG = 60;
+      // Webcam hardware spec — wide-angle 90° HFOV. Used by the hand
+      // pinhole projection (tickPhone) to translate pixel positions
+      // into world meters; getting this wrong distorts depth estimates.
+      const ASSUMED_HFOV_DEG = 90;
       const REAL_INDEX_LEN = 0.075;
 
       function withTimeout(p, ms, label) {
@@ -3252,6 +3265,7 @@
         screenGeom.widthMeters = v / 100;
         document.getElementById('screen-w-val').textContent = inp.value;
         rebuildShoebox(); rebuildLetterbox(); rebuildWindow();
+        webcamWorldPos.y = screenGeom.heightMeters / 2 + WEBCAM_ABOVE_SCREEN_TOP_M;
       });
       bindSlider('sit-back', 'sit-back-val', (v, inp) => {
         targetDepth = v / 100;
@@ -3432,6 +3446,9 @@
         rebuildShoebox();
         rebuildLetterbox();
         rebuildWindow();
+        // screenGeom.heightMeters is window-aspect-derived, so the
+        // webcam's Y above the screen center has to be rebaked too.
+        webcamWorldPos.y = screenGeom.heightMeters / 2 + WEBCAM_ABOVE_SCREEN_TOP_M;
       });
 
       // -------------------- Render loop --------------------
