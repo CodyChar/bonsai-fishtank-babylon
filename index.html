@@ -2147,6 +2147,7 @@
           const camX = -tx * u;
           const camY =  ty * u;
           const camZ = Math.abs(tz) * u;
+          _trackedDepthM = camZ;       // raw face distance for proximity check
           // Detect "face just appeared" and arm the auto-center
           // animation. The target offset (camX, camY, 0) matches what
           // the manual Recenter button would set.
@@ -2362,6 +2363,7 @@
         const camX  = phoneFilters.camX.filter(camXRaw,  now);
         const camY  = phoneFilters.camY.filter(camYRaw,  now);
         const depth = phoneFilters.depth.filter(depthRaw, now);
+        _trackedDepthM = depth;       // raw hand distance for proximity check
         // Auto-center on hand acquisition (mirror of the face path) so
         // userScale + calibrationOffset settle on values that put the
         // eye near targetDepth — keeps phone-mode FOV consistent with
@@ -3230,6 +3232,12 @@
       // frame toward 0 (far) or 1 (close).
       let proxThresholdZFace  = 0.75;     // metres; HUD-bound
       let proxThresholdZPhone = 0.40;     // metres; HUD-bound
+      // Raw tracker-to-subject distance in metres, written by tickFace
+      // and tickPhone. The proximity threshold compares against this
+      // (not camera.position.z) so changes to userScale or
+      // calibrationOffset — i.e. pressing Recenter — don't shift where
+      // the near/far swap fires. Only the sliders move it.
+      let _trackedDepthM = 0;
       const PROX_HYSTERESIS = 0.03;       // 3 cm dead band
       const PROX_FADE_RATE  = 0.18;       // ease per frame (50% snappier)
       let proxState = 'far';
@@ -3304,7 +3312,7 @@
       // Start with carousel hidden, now-card visible.
       forecastCards.forEach(({ card }) => { card.visibility = 0; });
       scene.onBeforeRenderObservable.add(() => {
-        const z = camera.position.z;
+        const z = _trackedDepthM;   // raw tracker depth, immune to userScale/recenter
         const thresh = (typeof trackingMode !== 'undefined' && trackingMode === 'phone')
           ? proxThresholdZPhone
           : proxThresholdZFace;
