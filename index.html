@@ -1993,6 +1993,48 @@
       // pixel span — replaces the face-anchored depth that phone mode
       // used to lean on.
       const REAL_PALM_WIDTH = 0.08;
+      // One-Euro filter for phone-mode jitter: adaptive smoothing that
+      // is heavy at rest (kills sub-pixel landmark noise) and light
+      // when the hand moves fast (so panning doesn't lag). Tuning:
+      //   minCutoff lower => smoother when still
+      //   beta      higher => more responsive when moving
+      // Casiez et al. 2012; standard MediaPipe-demo low-pass.
+      class OneEuroFilter {
+        constructor(minCutoff, beta, dCutoff = 1.0) {
+          this.minCutoff = minCutoff;
+          this.beta = beta;
+          this.dCutoff = dCutoff;
+          this.x = null;
+          this.dx = 0;
+          this.tPrev = 0;
+        }
+        reset() { this.x = null; this.dx = 0; }
+        _alpha(cutoff, dT) {
+          const tau = 1 / (2 * Math.PI * cutoff);
+          return 1 / (1 + tau / dT);
+        }
+        filter(value, tMs) {
+          if (this.x === null || !isFinite(this.x)) {
+            this.x = value; this.tPrev = tMs; return value;
+          }
+          const dT = Math.max(0.001, (tMs - this.tPrev) / 1000);
+          const dxRaw = (value - this.x) / dT;
+          this.dx = this.dx + this._alpha(this.dCutoff, dT) * (dxRaw - this.dx);
+          const cutoff = this.minCutoff + this.beta * Math.abs(this.dx);
+          this.x = this.x + this._alpha(cutoff, dT) * (value - this.x);
+          this.tPrev = tMs;
+          return this.x;
+        }
+      }
+      // Three filters per phone frame — depth is the noisiest signal
+      // (handSpan tiny pixel changes amplify into cm-scale depth shifts)
+      // so its minCutoff is the most aggressive. X/Y get a slightly
+      // looser cutoff so framing follows the hand without rubber-banding.
+      const phoneFilters = {
+        camX:  new OneEuroFilter(/*minCutoff*/ 1.2, /*beta*/ 0.04),
+        camY:  new OneEuroFilter(1.2, 0.04),
+        depth: new OneEuroFilter(0.8, 0.03),
+      };
       function tickPhone() {
         if (video.readyState < 2) return;
         if (video.currentTime === lastVideoTime) return;
@@ -2010,8 +2052,12 @@
           handLm = r?.landmarks?.[0] || null;
         }
         if (!handLm) {
-          // No hand → freeze the eye where it is. (Previously fell back
-          // to face-anchor; that path is gone by design.)
+          // No hand → freeze the eye AND reset filters so that when the
+          // hand reappears we don't blend across the gap and produce a
+          // sweep from the stale value to the new one.
+          phoneFilters.camX.reset();
+          phoneFilters.camY.reset();
+          phoneFilters.depth.reset();
           faceStatusEl.textContent = 'phone (no hand)';
           return;
         }
@@ -2027,10 +2073,16 @@
         // Depth from hand size: pinhole projection of a known palm
         // width. Clamped to a sane indoor range so a quick fist or a
         // mis-detection can't fling the camera.
-        const depth = Math.min(2.0, Math.max(0.10,
+        const depthRaw = Math.min(2.0, Math.max(0.10,
           (REAL_PALM_WIDTH * f_px) / Math.max(1, handSpan)));
-        const camX = -((lensX - vw / 2)) / f_px * depth;
-        const camY =  ((vh / 2 - lensY)) / f_px * depth;
+        const camXRaw = -((lensX - vw / 2)) / f_px * depthRaw;
+        const camYRaw =  ((vh / 2 - lensY)) / f_px * depthRaw;
+        // One-Euro low-pass each axis. The render loop's 0.35 lerp
+        // still rides on top, but most of the per-frame jitter is
+        // absorbed here.
+        const camX  = phoneFilters.camX.filter(camXRaw,  now);
+        const camY  = phoneFilters.camY.filter(camYRaw,  now);
+        const depth = phoneFilters.depth.filter(depthRaw, now);
         eye.set(
           webcamWorldPos.x + camX - calibrationOffset.x,
           webcamWorldPos.y + camY - calibrationOffset.y,
@@ -2056,6 +2108,11 @@
         modeBtn.textContent = 'Mode: ' + (mode === 'phone' ? 'Phone' : 'Face');
         try { localStorage.setItem('bonsaiBabylonMode', mode); } catch {}
         if (mode === 'phone') {
+          // Wipe filter state so a stale value from a previous phone
+          // session doesn't blend across the mode-switch boundary.
+          phoneFilters.camX.reset();
+          phoneFilters.camY.reset();
+          phoneFilters.depth.reset();
           ensureHandLandmarker().catch(e => {
             faceStatusEl.textContent = 'hand model error';
             applyTrackingMode('face');
