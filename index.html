@@ -100,7 +100,10 @@
         padding: 56px 30px 60px;
         color: #fff;
         font-family: system-ui, -apple-system, sans-serif;
-        background: rgba(0, 0, 0, 0.60);
+        background: linear-gradient(180deg,
+          rgba(255,255,255,0.18) 0%,
+          rgba(0,0,0,0.34) 50%,
+          rgba(0,0,0,0.28) 100%);
         backdrop-filter: url(#acrylic-warp) blur(var(--panel-blur)) saturate(140%);
         -webkit-backdrop-filter: url(#acrylic-warp) blur(var(--panel-blur)) saturate(140%);
         border-radius: var(--panel-radius);
@@ -1426,13 +1429,11 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Flat translucent fill (no gradient) — lighter than the old
-        // black-mid gradient. Today's card gets a brighter body and a
-        // warm accent rim so it pops out of the strip.
+        // Flat black 60% fill — matches the deck's panel reference.
+        // Today's card stays at the same 60% so the warm rim + yellow
+        // text alone do the differentiation.
         roundRectPath();
-        ctx.fillStyle = isToday
-          ? 'rgba(255, 255, 255, 0.42)'
-          : 'rgba(255, 255, 255, 0.28)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.60)';
         ctx.fill();
         // Noise grain inside the clipped shape.
         if (panelStyle.grain > 0) {
@@ -2867,7 +2868,7 @@
           }
           // Current
           const today = new Date(d.daily.time[0] + 'T00:00');
-          const todayDay = today.toLocaleDateString('en-US', { weekday: 'long' });
+          const todayDay = today.toLocaleDateString('en-US', { weekday: 'short' });
           const todayDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           nowCard.day.innerHTML  = todayDay + `<span class="now-date">${todayDate}</span>`;
           nowCard.temp.textContent = Math.round(d.current.temperature_2m) + '°';
