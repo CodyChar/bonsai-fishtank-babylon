@@ -1439,12 +1439,12 @@
           ctx.lineTo(0, R);     ctx.quadraticCurveTo(0, 0, R, 0);
           ctx.closePath();
         }
-        // Flat fill: dark glass for the rest of the week, frosted
-        // white for today — bumped to read clearly brighter than the
-        // surrounding tiles in the strip.
+        // Flat black fill for every card. Today drops to 35% opacity
+        // (vs 40% for the rest), so it reads as slightly lighter
+        // without changing tone.
         roundRectPath();
         ctx.fillStyle = isToday
-          ? 'rgba(255, 255, 255, 0.45)'
+          ? 'rgba(0, 0, 0, 0.35)'
           : 'rgba(0, 0, 0, 0.40)';
         ctx.fill();
         // Noise grain inside the clipped shape. Use source-over with a
