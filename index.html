@@ -144,7 +144,32 @@
         opacity: var(--panel-grain);
         mix-blend-mode: overlay;
       }
-      #now-card .now-loc { font-size: 32px; letter-spacing: .08em; text-transform: uppercase; opacity: .95; margin-bottom: 24px; font-weight: 600; line-height: 1.05; }
+      /* Clock dominates the panel — bigger than the temperature, sits
+         at the very top. Letter-spacing pulled in so the digits read
+         tight; the small AM/PM rides at the upper-right. */
+      #now-card .now-clock {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 6px;
+        margin-bottom: 14px;
+        line-height: 0.95;
+        font-feature-settings: 'tnum' 1;
+      }
+      #now-card .now-clock-time {
+        font-size: 132px;
+        font-weight: 200;
+        letter-spacing: -0.04em;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.55);
+      }
+      #now-card .now-clock-ampm {
+        font-size: 28px;
+        font-weight: 600;
+        opacity: 0.85;
+        letter-spacing: 0.10em;
+        margin-top: 18px;
+      }
+      #now-card .now-loc { font-size: 22px; letter-spacing: .14em; text-transform: uppercase; opacity: .80; margin-bottom: 22px; font-weight: 500; line-height: 1.05; }
       #now-card .now-main {
         display: flex; align-items: center; gap: 12px;
         margin-bottom: 6px;
@@ -281,6 +306,9 @@
 
     <div id="now-card" aria-live="polite">
       <div class="now-card-inner">
+        <div class="now-clock">
+          <span class="now-clock-time">—</span><span class="now-clock-ampm"></span>
+        </div>
         <div class="now-loc">Seattle · WA</div>
         <div class="now-main">
           <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
@@ -1960,23 +1988,19 @@
         }
       }
 
+      // Real palm width between landmarks 5 (index MCP) and 17 (pinky
+      // MCP). Average adult ~8 cm. Used to derive depth from the hand's
+      // pixel span — replaces the face-anchored depth that phone mode
+      // used to lean on.
+      const REAL_PALM_WIDTH = 0.08;
       function tickPhone() {
         if (video.readyState < 2) return;
         if (video.currentTime === lastVideoTime) return;
         lastVideoTime = video.currentTime;
         const now = performance.now();
-        let facePhoneZ = null, faceCamX = 0, faceCamY = 0;
-        if (faceLandmarker) {
-          const r = faceLandmarker.detectForVideo(video, now - 0.5);
-          const x = r.facialTransformationMatrixes?.[0];
-          if (x) {
-            const m = x.data;
-            const u = Math.abs(m[14]) > 5 ? 0.01 : 1.0;
-            facePhoneZ = Math.max(0.10, Math.abs(m[14]) * u - 0.3048);
-            faceCamX = -m[12] * u;
-            faceCamY =  m[13] * u;
-          }
-        }
+        // Phone mode: hand-only. Face landmarker is intentionally NOT
+        // queried so the face has zero influence on depth, X/Y, or the
+        // proximity-swap breakpoint.
         if (!handLandmarker) {
           ensureHandLandmarker().catch(e => console.warn(e));
         }
@@ -1986,16 +2010,9 @@
           handLm = r?.landmarks?.[0] || null;
         }
         if (!handLm) {
-          if (facePhoneZ !== null) {
-            eye.set(
-              webcamWorldPos.x + faceCamX - calibrationOffset.x,
-              webcamWorldPos.y + faceCamY - calibrationOffset.y,
-              webcamWorldPos.z + facePhoneZ * userScale - calibrationOffset.z
-            );
-            faceStatusEl.textContent = 'phone (face-anchor)';
-          } else {
-            faceStatusEl.textContent = 'no hand / no face';
-          }
+          // No hand → freeze the eye where it is. (Previously fell back
+          // to face-anchor; that path is gone by design.)
+          faceStatusEl.textContent = 'phone (no hand)';
           return;
         }
         const vw = video.videoWidth, vh = video.videoHeight;
@@ -2007,7 +2024,11 @@
         const handSpan = Math.hypot(dx, dy);
         const lensX = palmX, lensY = palmY - handSpan * 0.8;
         const f_px = vw / (2 * Math.tan((ASSUMED_HFOV_DEG / 2) * Math.PI / 180));
-        const depth = facePhoneZ !== null ? facePhoneZ : 0.3;
+        // Depth from hand size: pinhole projection of a known palm
+        // width. Clamped to a sane indoor range so a quick fist or a
+        // mis-detection can't fling the camera.
+        const depth = Math.min(2.0, Math.max(0.10,
+          (REAL_PALM_WIDTH * f_px) / Math.max(1, handSpan)));
         const camX = -((lensX - vw / 2)) / f_px * depth;
         const camY =  ((vh / 2 - lensY)) / f_px * depth;
         eye.set(
@@ -2807,6 +2828,30 @@
           if (nowCard.cond) nowCard.cond.textContent = 'Offline';
           paintNowIcon('cloud');
         }
+      })();
+
+      // -------------------- Clock --------------------
+      // Drives the giant time on the now-card. Ticks every second; the
+      // smaller AM/PM rides next to the digits.
+      (function startClock() {
+        const timeEl = document.querySelector('#now-card .now-clock-time');
+        const ampmEl = document.querySelector('#now-card .now-clock-ampm');
+        if (!timeEl || !ampmEl) return;
+        const update = () => {
+          const d = new Date();
+          let h = d.getHours();
+          const m = d.getMinutes();
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          h = h % 12 || 12;
+          timeEl.textContent = h + ':' + (m < 10 ? '0' + m : m);
+          ampmEl.textContent = ampm;
+        };
+        update();
+        // Snap the next interval onto the second boundary so the
+        // minute roll-over fires when the wall clock changes, not 0-1s
+        // late.
+        const ms = 1000 - (Date.now() % 1000);
+        setTimeout(() => { update(); setInterval(update, 1000); }, ms);
       })();
 
       // Proximity-triggered swap between the screen-space #now-card and
