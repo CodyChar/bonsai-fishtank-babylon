@@ -169,7 +169,7 @@
       #now-card .now-clock {
         display: flex;
         justify-content: center;
-        margin-bottom: 6px;
+        margin-bottom: 0;
         line-height: 0.95;
         font-feature-settings: 'tnum' 1;
       }
@@ -179,26 +179,54 @@
         letter-spacing: -0.04em;
         text-shadow: 0 2px 8px rgba(0,0,0,0.55);
       }
-      /* Location centered, tucked tight under the clock and just above
-         the weather row so they read as a single unit. */
+      /* Hairline divider between the clock and the location — sits in
+         its own row with breathing room above and below so it reads as
+         a section break, not a tight border. */
+      #now-card .now-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.22);
+        margin: 22px 4px 22px;
+      }
+      /* Location centered above the weather cluster. */
       #now-card .now-loc {
         font-size: 22px; letter-spacing: .14em; text-transform: uppercase;
-        opacity: .80; margin-bottom: 10px; font-weight: 500;
+        opacity: .80; margin-bottom: 18px; font-weight: 500;
         line-height: 1.05; text-align: center;
       }
-      #now-card .now-main {
-        display: flex; align-items: center; gap: 12px;
-        margin-bottom: 4px;
+      /* Weather cluster — icon + temp on top, condition center, hi/lo
+         row at the bottom. Treated as a single grouped block so the
+         related info reads as one unit. */
+      #now-card .now-weather {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
       }
-      #now-card .now-icon { width: 110px; height: 110px; flex: 0 0 auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
-      #now-card .now-temp { font-size: 86px; font-weight: 200; line-height: 1; letter-spacing: -0.04em; flex: 1; text-align: right; }
-      #now-card .now-cond { font-size: 20px; font-weight: 500; opacity: .95; margin-bottom: 18px; }
-      /* Hi/lo row at the bottom, centered, with a hairline divider. */
+      #now-card .now-main {
+        display: flex; align-items: center; justify-content: center;
+        gap: 14px;
+        width: 100%;
+      }
+      #now-card .now-icon {
+        width: 96px; height: 96px;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+      }
+      #now-card .now-temp {
+        font-size: 96px; font-weight: 200; line-height: 1;
+        letter-spacing: -0.04em;
+      }
+      #now-card .now-cond {
+        font-size: 20px; font-weight: 500; opacity: .95;
+        text-align: center;
+        letter-spacing: .02em;
+      }
       #now-card .now-hilo {
-        display: flex; justify-content: center; gap: 24px;
-        font-size: 15px; opacity: .82; font-weight: 500;
-        padding-top: 14px;
-        border-top: 1px solid rgba(255,255,255,0.22);
+        display: flex; justify-content: center; gap: 22px;
+        font-size: 16px; opacity: .80; font-weight: 500;
+        margin-top: 2px;
+      }
+      #now-card .now-hilo span {
+        display: inline-flex; align-items: baseline; gap: 4px;
       }
       body.ui-hidden #now-card { /* stays visible — weather is always on */ }
 
@@ -325,13 +353,16 @@
         <div class="now-clock">
           <span class="now-clock-time">—</span>
         </div>
+        <div class="now-divider"></div>
         <div class="now-loc">Seattle · WA</div>
-        <div class="now-main">
-          <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
-          <div class="now-temp">—</div>
+        <div class="now-weather">
+          <div class="now-main">
+            <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
+            <div class="now-temp">—</div>
+          </div>
+          <div class="now-cond">Loading…</div>
+          <div class="now-hilo"><span>H —</span><span>L —</span></div>
         </div>
-        <div class="now-cond">Loading…</div>
-        <div class="now-hilo"><span>H —</span><span>L —</span></div>
       </div>
     </div>
 
