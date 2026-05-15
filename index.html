@@ -141,15 +141,22 @@
         opacity: var(--panel-grain);
         mix-blend-mode: overlay;
       }
-      /* Clock dominates the panel — bigger than the temperature, sits
-         at the very top. Letter-spacing pulled in so the digits read
-         tight; the small AM/PM rides at the upper-right. */
+      /* Day + date row — header above the clock, centered. */
+      #now-card .now-meta-day {
+        font-size: 18px; font-weight: 600; opacity: .85;
+        text-align: center;
+        letter-spacing: .04em;
+        margin-bottom: 6px;
+      }
+      #now-card .now-date {
+        font-size: 16px; font-weight: 400; opacity: .75;
+        margin-left: 8px;
+      }
+      /* Clock dominates the panel — biggest element, centered. */
       #now-card .now-clock {
         display: flex;
-        align-items: flex-start;
         justify-content: center;
-        gap: 6px;
-        margin-bottom: 14px;
+        margin-bottom: 6px;
         line-height: 0.95;
         font-feature-settings: 'tnum' 1;
       }
@@ -159,29 +166,27 @@
         letter-spacing: -0.04em;
         text-shadow: 0 2px 8px rgba(0,0,0,0.55);
       }
-      #now-card .now-clock-ampm {
-        font-size: 28px;
-        font-weight: 600;
-        opacity: 0.85;
-        letter-spacing: 0.10em;
-        margin-top: 18px;
+      /* Location centered, tucked tight under the clock and just above
+         the weather row so they read as a single unit. */
+      #now-card .now-loc {
+        font-size: 22px; letter-spacing: .14em; text-transform: uppercase;
+        opacity: .80; margin-bottom: 10px; font-weight: 500;
+        line-height: 1.05; text-align: center;
       }
-      #now-card .now-loc { font-size: 22px; letter-spacing: .14em; text-transform: uppercase; opacity: .80; margin-bottom: 22px; font-weight: 500; line-height: 1.05; }
       #now-card .now-main {
         display: flex; align-items: center; gap: 12px;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
       }
       #now-card .now-icon { width: 110px; height: 110px; flex: 0 0 auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
       #now-card .now-temp { font-size: 86px; font-weight: 200; line-height: 1; letter-spacing: -0.04em; flex: 1; text-align: right; }
-      #now-card .now-cond { font-size: 20px; font-weight: 500; opacity: .95; margin-bottom: 26px; }
-      #now-card .now-meta {
-        display: flex; justify-content: space-between; align-items: baseline;
-        padding-top: 18px;
+      #now-card .now-cond { font-size: 20px; font-weight: 500; opacity: .95; margin-bottom: 18px; }
+      /* Hi/lo row at the bottom, centered, with a hairline divider. */
+      #now-card .now-hilo {
+        display: flex; justify-content: center; gap: 24px;
+        font-size: 15px; opacity: .82; font-weight: 500;
+        padding-top: 14px;
         border-top: 1px solid rgba(255,255,255,0.22);
       }
-      #now-card .now-meta-day { font-size: 16px; font-weight: 600; opacity: .92; }
-      #now-card .now-date { font-size: 14px; opacity: .65; font-weight: 400; margin-left: 8px; }
-      #now-card .now-hilo { display: flex; gap: 18px; font-size: 15px; opacity: .82; font-weight: 500; }
       body.ui-hidden #now-card { /* stays visible — weather is always on */ }
 
 
@@ -303,8 +308,9 @@
 
     <div id="now-card" aria-live="polite">
       <div class="now-card-inner">
+        <div class="now-meta-day">Today<span class="now-date">—</span></div>
         <div class="now-clock">
-          <span class="now-clock-time">—</span><span class="now-clock-ampm"></span>
+          <span class="now-clock-time">—</span>
         </div>
         <div class="now-loc">Seattle · WA</div>
         <div class="now-main">
@@ -312,10 +318,7 @@
           <div class="now-temp">—</div>
         </div>
         <div class="now-cond">Loading…</div>
-        <div class="now-meta">
-          <div class="now-meta-day">Today<span class="now-date">—</span></div>
-          <div class="now-hilo"><span>H —</span><span>L —</span></div>
-        </div>
+        <div class="now-hilo"><span>H —</span><span>L —</span></div>
       </div>
     </div>
 
@@ -2889,16 +2892,13 @@
       // smaller AM/PM rides next to the digits.
       (function startClock() {
         const timeEl = document.querySelector('#now-card .now-clock-time');
-        const ampmEl = document.querySelector('#now-card .now-clock-ampm');
-        if (!timeEl || !ampmEl) return;
+        if (!timeEl) return;
         const update = () => {
           const d = new Date();
           let h = d.getHours();
           const m = d.getMinutes();
-          const ampm = h >= 12 ? 'PM' : 'AM';
           h = h % 12 || 12;
           timeEl.textContent = h + ':' + (m < 10 ? '0' + m : m);
-          ampmEl.textContent = ampm;
         };
         update();
         // Snap the next interval onto the second boundary so the
