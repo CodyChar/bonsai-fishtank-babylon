@@ -376,6 +376,18 @@
       <div class="slider-row"><span>Vignette</span><input id="fx-vign" type="range" min="0" max="1" step="0.01" value="0.44"><code id="fx-vign-val">0.44</code></div>
       <div class="slider-row"><span>Volumetric</span><input id="fx-vol" type="range" min="0" max="2" step="0.01" value="0"><code id="fx-vol-val">0.00</code></div>
       <div class="slider-row"><span>SSAO</span><input id="fx-ssao" type="range" min="0" max="3" step="0.05" value="0"><code id="fx-ssao-val">0.00</code></div>
+
+      <h2>Color grading</h2>
+      <!-- Scene-wide image-processing sliders. The splat dominates the
+           visible area, so these read primarily as splat color/lighting
+           tweaks. Saturation uses Babylon's ColorCurves.globalSaturation
+           in -100..100 (0 = neutral). -->
+      <div class="slider-row"><span>Saturation</span><input id="fx-sat" type="range" min="-100" max="100" step="1" value="0"><code id="fx-sat-val">0</code></div>
+      <div class="slider-row"><span>Contrast</span><input id="fx-contrast" type="range" min="0.5" max="2.5" step="0.01" value="1.30"><code id="fx-contrast-val">1.30</code></div>
+      <div class="slider-row"><span>Exposure</span><input id="fx-exposure" type="range" min="0.2" max="2.5" step="0.01" value="1.00"><code id="fx-exposure-val">1.00</code></div>
+      <div class="slider-row"><span>Hue rotate</span><input id="fx-hue" type="range" min="-180" max="180" step="1" value="0"><code id="fx-hue-val">0</code></div>
+      <div class="slider-row"><span>Ambient color</span><input id="amb-color" type="color" value="#8c9ec8" style="flex:1;height:24px;border:1px solid #3a4352;border-radius:6px;background:transparent"><code id="amb-color-val">#8c9ec8</code></div>
+      <div class="slider-row"><span>Ambient strength</span><input id="amb-strength" type="range" min="0" max="2" step="0.01" value="1.00"><code id="amb-strength-val">1.00</code></div>
     </div>
 
     <div id="preview">
@@ -1224,13 +1236,16 @@
       // ~1/4 the box height and sit in the bottom third so the splat
       // tree above stays unobstructed.
       const FORECAST_DAYS = 10;
-      const FORECAST_ARC = (2 * Math.PI) / 3;            // 120°
+      const FORECAST_ARC = (2 * Math.PI) / 3;            // 120° wrap around the viewer
       // Elliptical placement: X-radius = box half-width, Z-radius
       // capped by box depth so the front card doesn't poke past the
       // screen plane (which would put a card on top of the camera lens
       // and cause it to consume the entire frame after DoF).
-      const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.5;
-      const FORECAST_RADIUS_Z = boxDepth * 0.42;
+      // Larger ellipse, with the cards now sitting on its INSIDE arc
+      // (concave toward the viewer). Middle card is the deepest point;
+      // the side cards bend forward and around the camera.
+      const FORECAST_RADIUS_X = screenGeom.widthMeters * 0.85;
+      const FORECAST_RADIUS_Z = boxDepth * 0.70;
       const FORECAST_CENTRE_Z = -boxDepth * 0.5 - 0.10;   // pushed back ~4 inches
       const FORECAST_CARD_H = screenGeom.heightMeters * 0.28;    // larger for legibility
       const FORECAST_CARD_W = FORECAST_CARD_H * 0.67;
@@ -1248,11 +1263,14 @@
           scene);
         card.parent = forecastGroup;
         const px = Math.sin(angle) * FORECAST_RADIUS_X;
-        const pz = FORECAST_CENTRE_Z + Math.cos(angle) * FORECAST_RADIUS_Z;
+        // Negative cos => cards sit on the back half of the ellipse, so
+        // the curve wraps around the viewer (concave toward camera).
+        const pz = FORECAST_CENTRE_Z - Math.cos(angle) * FORECAST_RADIUS_Z;
         card.position.set(px, FORECAST_CARD_Y, pz);
-        // Outward normal of the ellipse (not the parameter direction).
+        // Inward normal — each card faces the ellipse's center, which is
+        // now in front of the cards (between them and the camera).
         card.rotation.y = Math.atan2(
-          FORECAST_RADIUS_Z * Math.sin(angle),
+          -FORECAST_RADIUS_Z * Math.sin(angle),
           FORECAST_RADIUS_X * Math.cos(angle),
         );
         card.isPickable = false;
@@ -1607,6 +1625,16 @@
       pipeline.imageProcessing.toneMappingType = BJS.ImageProcessingConfiguration.TONEMAPPING_ACES;
       pipeline.imageProcessing.exposure = 1.0;
       pipeline.imageProcessing.contrast = 1.30;          // crunchier shadow/highlight roll-off
+      // Color curves drive the Saturation + Hue rotate sliders. Babylon
+      // applies these as part of the imageProcessing post pass, so the
+      // splat (and the rest of the scene) get graded together.
+      pipeline.imageProcessing.colorCurves = new BJS.ColorCurves();
+      // Explicit zero baseline — Babylon's ColorCurves defaults to
+      // globalHue=30, which would silently shift colors before any
+      // slider input. Zero them so sliders read "no change" at boot.
+      pipeline.imageProcessing.colorCurves.globalHue = 0;
+      pipeline.imageProcessing.colorCurves.globalSaturation = 0;
+      pipeline.imageProcessing.colorCurvesEnabled = true;
       pipeline.imageProcessing.vignetteEnabled = true;
       pipeline.imageProcessing.vignetteWeight = 0.44 * 4; // matches slider default 0.44
       pipeline.imageProcessing.vignetteColor = new BJS.Color4(0, 0, 0, 0);
@@ -2423,6 +2451,11 @@
         if (!n || !n.name) return false;
         if (STATE_EXCLUDE.has(n.name)) return false;
         if (n.name.startsWith('__')) return false;
+        // Forecast cards are arranged by the curve formula at boot —
+        // their positions are derived from FORECAST_RADIUS_*/CENTRE_Z,
+        // not author-tweakable. Skip them so old saved positions don't
+        // override layout changes after a curve update.
+        if (n.name && n.name.startsWith('forecastCard')) return false;
         if (n.metadata && n.metadata.isLightArrow) return false;
         return true;
       }
@@ -3156,6 +3189,52 @@
       });
       bindSlider('fx-vol', 'fx-vol-val', v => { if (godRays) { godRays.exposure = 0.18 * v; godRays.weight = 0.55 * v; } });
       bindSlider('fx-ssao', 'fx-ssao-val', v => { if (ssao) ssao.totalStrength = v; });
+
+      // -------------------- Color grading sliders --------------------
+      bindSlider('fx-sat', 'fx-sat-val', v => {
+        pipeline.imageProcessing.colorCurves.globalSaturation = v;
+      });
+      bindSlider('fx-contrast', 'fx-contrast-val', v => {
+        pipeline.imageProcessing.contrast = v;
+      });
+      bindSlider('fx-exposure', 'fx-exposure-val', v => {
+        pipeline.imageProcessing.exposure = v;
+      });
+      bindSlider('fx-hue', 'fx-hue-val', v => {
+        pipeline.imageProcessing.colorCurves.globalHue = v;
+      });
+      // Ambient: hex color drives both scene.ambientColor (used by
+      // PBR mats) and the hemi light's diffuse (the dominant fill).
+      // groundColor is left at its dark baseline. Strength multiplies
+      // the hemi intensity around its 0.18 boot value.
+      const HEMI_BASE_INTENSITY = 0.18;
+      const ambColorInput = document.getElementById('amb-color');
+      const ambColorVal   = document.getElementById('amb-color-val');
+      const _hexToColor3 = (hex) => {
+        const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+        if (!m) return null;
+        const n = parseInt(m[1], 16);
+        return new BJS.Color3(((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255);
+      };
+      function applyAmbientColor(hex) {
+        const c = _hexToColor3(hex);
+        if (!c) return;
+        scene.ambientColor = c;
+        hemi.diffuse = c;
+        ambColorVal.textContent = hex.toLowerCase();
+      }
+      ambColorInput.addEventListener('input', () => {
+        applyAmbientColor(ambColorInput.value);
+        try { localStorage.setItem('bonsaiSlider:amb-color', ambColorInput.value); } catch {}
+      });
+      try {
+        const savedAmb = localStorage.getItem('bonsaiSlider:amb-color');
+        if (savedAmb) { ambColorInput.value = savedAmb; }
+      } catch {}
+      applyAmbientColor(ambColorInput.value);
+      bindSlider('amb-strength', 'amb-strength-val', v => {
+        hemi.intensity = HEMI_BASE_INTENSITY * v;
+      });
 
       // -------------------- Resize --------------------
       window.addEventListener('resize', () => {
