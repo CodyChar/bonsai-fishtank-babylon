@@ -100,15 +100,27 @@
         padding: 56px 30px 60px;
         color: #fff;
         font-family: system-ui, -apple-system, sans-serif;
-        background: linear-gradient(180deg,
-          rgba(255,255,255,0.18) 0%,
-          rgba(0,0,0,0.34) 50%,
-          rgba(0,0,0,0.28) 100%);
+        /* Two-layer background: body fill clipped to padding-box,
+           gradient ring clipped to border-box. Combined with a
+           transparent border, the second layer paints only across
+           the border ring — that's the radial-stroke effect. The
+           gradient is brightest at the top-right and falls off into
+           the rest of the rim. */
+        border: 1.6px solid transparent;
+        background:
+          linear-gradient(180deg,
+            rgba(255,255,255,0.18) 0%,
+            rgba(0,0,0,0.34) 50%,
+            rgba(0,0,0,0.28) 100%) padding-box,
+          radial-gradient(120% 120% at 100% 0%,
+            rgba(255,255,255,0.95) 0%,
+            rgba(255,255,255,0.45) 22%,
+            rgba(255,255,255,0.12) 55%,
+            rgba(255,255,255,0.04) 100%) border-box;
         backdrop-filter: url(#acrylic-warp) blur(var(--panel-blur)) saturate(140%);
         -webkit-backdrop-filter: url(#acrylic-warp) blur(var(--panel-blur)) saturate(140%);
         border-radius: var(--panel-radius);
         box-shadow:
-          inset 0 0 0 1.2px rgba(255,255,255,0.45),
           inset 0 1.5px 0 rgba(255,255,255,0.32),
           inset 0 0 22px 6px rgba(0,0,0,0.18),
           inset 0 0 0 3px rgba(255,255,255,0.05),
