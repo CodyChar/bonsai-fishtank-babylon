@@ -187,20 +187,21 @@
         background: rgba(255, 255, 255, 0.22);
         margin: 22px 4px 22px;
       }
-      /* Location centered above the weather cluster. */
+      /* Location pinned at the bottom of the panel — sits below the
+         weather cluster as the footer label. */
       #now-card .now-loc {
         font-size: 22px; letter-spacing: .14em; text-transform: uppercase;
-        opacity: .80; margin-bottom: 18px; font-weight: 500;
+        opacity: .80; margin-top: 22px; font-weight: 500;
         line-height: 1.05; text-align: center;
       }
-      /* Weather cluster — icon + temp on top, condition center, hi/lo
-         row at the bottom. Treated as a single grouped block so the
-         related info reads as one unit. */
+      /* Weather cluster — icon on the left, temp + hi/lo stacked
+         left-justified on the right. Icon height matches the combined
+         height of the temp line and the hi/lo line so the row reads
+         as a single balanced block. */
       #now-card .now-weather {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 10px;
       }
       #now-card .now-main {
         display: flex; align-items: center; justify-content: center;
@@ -208,22 +209,23 @@
         width: 100%;
       }
       #now-card .now-icon {
-        width: 96px; height: 96px;
+        /* ~96px temp + 24px hi/lo + 4px gap ~= 124px */
+        width: 124px; height: 124px;
+        flex: 0 0 auto;
         filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+      }
+      #now-card .now-temp-stack {
+        display: flex; flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
       }
       #now-card .now-temp {
         font-size: 96px; font-weight: 200; line-height: 1;
         letter-spacing: -0.04em;
       }
-      #now-card .now-cond {
-        font-size: 20px; font-weight: 500; opacity: .95;
-        text-align: center;
-        letter-spacing: .02em;
-      }
       #now-card .now-hilo {
-        display: flex; justify-content: center; gap: 22px;
-        font-size: 16px; opacity: .80; font-weight: 500;
-        margin-top: 2px;
+        display: flex; gap: 18px;
+        font-size: 18px; opacity: .80; font-weight: 500;
       }
       #now-card .now-hilo span {
         display: inline-flex; align-items: baseline; gap: 4px;
@@ -354,15 +356,16 @@
           <span class="now-clock-time">—</span>
         </div>
         <div class="now-divider"></div>
-        <div class="now-loc">Seattle · WA</div>
         <div class="now-weather">
           <div class="now-main">
             <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
-            <div class="now-temp">—</div>
+            <div class="now-temp-stack">
+              <div class="now-temp">—</div>
+              <div class="now-hilo"><span>H —</span><span>L —</span></div>
+            </div>
           </div>
-          <div class="now-cond">Loading…</div>
-          <div class="now-hilo"><span>H —</span><span>L —</span></div>
         </div>
+        <div class="now-loc">Seattle · WA</div>
       </div>
     </div>
 
@@ -3148,7 +3151,6 @@
           day:  document.querySelector('#now-card .now-meta-day'),
           date: document.querySelector('#now-card .now-date'),
           temp: document.querySelector('#now-card .now-temp'),
-          cond: document.querySelector('#now-card .now-cond'),
           hilo: document.querySelector('#now-card .now-hilo'),
           icon: document.querySelector('#now-card .now-icon'),
         };
@@ -3184,7 +3186,6 @@
           const todayDate = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           nowCard.day.innerHTML  = todayDay + `<span class="now-date">${todayDate}</span>`;
           nowCard.temp.textContent = Math.round(d.current.temperature_2m) + '°';
-          nowCard.cond.textContent = condFromCode(d.current.weather_code);
           nowCard.hilo.innerHTML =
             `<span>H ${Math.round(d.daily.temperature_2m_max[0])}°</span>` +
             `<span>L ${Math.round(d.daily.temperature_2m_min[0])}°</span>`;
@@ -3195,7 +3196,6 @@
           forecastCards.forEach((slot) => paintForecastCard(slot, {
             dayLabel: '—', dateLabel: '—', cond: 'Offline', icon: 'cloud', hi: '—', lo: '—',
           }));
-          if (nowCard.cond) nowCard.cond.textContent = 'Offline';
           paintNowIcon('cloud');
         }
       })();
