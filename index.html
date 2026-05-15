@@ -187,11 +187,11 @@
         background: rgba(255, 255, 255, 0.22);
         margin: 22px 4px 22px;
       }
-      /* Location pinned at the bottom of the panel — sits below the
-         weather cluster as the footer label. */
+      /* Location sits between the divider and the weather cluster —
+         large header for the city. */
       #now-card .now-loc {
-        font-size: 22px; letter-spacing: .14em; text-transform: uppercase;
-        opacity: .80; margin-top: 22px; font-weight: 500;
+        font-size: 36px; letter-spacing: .10em; text-transform: uppercase;
+        opacity: .92; margin-bottom: 18px; font-weight: 600;
         line-height: 1.05; text-align: center;
       }
       /* Weather cluster — icon on the left, temp + hi/lo stacked
@@ -356,6 +356,7 @@
           <span class="now-clock-time">—</span>
         </div>
         <div class="now-divider"></div>
+        <div class="now-loc">Seattle · WA</div>
         <div class="now-weather">
           <div class="now-main">
             <canvas class="now-icon" width="160" height="160" aria-hidden="true"></canvas>
@@ -365,7 +366,6 @@
             </div>
           </div>
         </div>
-        <div class="now-loc">Seattle · WA</div>
       </div>
     </div>
 
